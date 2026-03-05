@@ -1,0 +1,439 @@
+---
+title: "PJM_Data_Manipulation_for_public"
+output: html_document
+date: "2025-02-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Description: Data manipulation to the raw public PJM interconnection data
+# Note: All cost variables are not in real term (haven't adjusted for CPI)
+
+rm(list = ls())
+
+# Library
+library(readr)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(stringr)
+library(zoo)
+
+
+# Set directory
+setwd("~/Box Sync/wind energy/")
+
+
+# Read in PJM public planning queue data
+planning_queue = read_excel("data/interconnection/PlanningQueues_2024.xlsx") %>%
+  rename_all(tolower) %>%
+  rename(queue_number = `project id`) %>%
+  mutate(queue_number = str_replace_all(queue_number, " ", "")) %>%
+  filter(`project type` == "Generation Interconnection") %>%
+  mutate(queue_number = str_replace_all(queue_number, "-movedtoTC1", "")) %>%
+  select(queue_number,status,fuel,`submitted date`,`withdrawal date`,`commercial operation milestone`,`revised in service date`,`actual in service date`, `mfo`)
+
+
+# Read in the newly collected Interconnection Queue data
+collected_data = read.csv("data/interconnection/pjm_main_data_for_public.csv")
+
+
+# Read in CPI data
+cpi_data = read_excel("data/cpi/CPILEGNS_2024.xlsx", sheet = "Monthly", range = "A1:B816", col_names = TRUE) %>%
+             mutate(year = year(observation_date)) %>%
+             group_by(year) %>%
+             summarise(cpilegns = mean(CPILEGNS, na.rm = TRUE)) %>%
+             ungroup()
+
+
+# Clean and Construct additional varaibles from the PJM public planning queue data
+
+## Adjust three queue_number so that those match with the newly collected data
+planning_queue = planning_queue %>%
+  mutate(queue_number = case_when(
+    queue_number == "AG1-392A" ~ "AG1-389",
+    queue_number == "AG1-392B" ~ "AG1-390",
+    queue_number == "AG1-392C" ~ "AG1-391",
+    TRUE ~ queue_number
+  ))
+
+## Generate date variables
+### Correct actual in service date using the commercial operation milestone date (which is also referred as projected in service date) in the planning queue data (some of the actual in service dates are obviously errors)
+planning_queue = planning_queue %>%
+  mutate(
+    actual_in_service_date = if_else(
+      queue_number %in% c("AC1-038", "AC2-140", "AC2-172", "AD2-167"),
+      `commercial operation milestone`,
+      `actual in service date`
+    ),
+    `commercial operation milestone` = case_when(
+      queue_number == "AE1-001" ~ "8/1/2019",
+      queue_number == "AF1-071" ~ "10/1/2022",
+      queue_number == "AF1-072" ~ "5/1/2020",
+      TRUE ~ `commercial operation milestone`
+    )
+  )
+### Convert them to year-month formate
+planning_queue = planning_queue %>%
+  mutate(
+    queue_date_temp = mdy(`submitted date`),
+    withdrawal_date_temp = mdy(`withdrawal date`),
+    actual_in_service_date_temp = mdy(actual_in_service_date),
+    revised_in_service_date_temp = mdy(`revised in service date`),
+    projected_in_service_date_temp = mdy(`commercial operation milestone`)
+  ) %>%
+  mutate(
+    in_queue_till_temp = actual_in_service_date_temp,
+    in_queue_till_temp = if_else(is.na(in_queue_till_temp), revised_in_service_date_temp, in_queue_till_temp),
+    in_queue_till_temp = if_else(is.na(in_queue_till_temp), projected_in_service_date_temp, in_queue_till_temp)
+  ) %>%
+  mutate(
+    queue_date = format(queue_date_temp, "%Y-%m"),
+    withdrawal_date = format(withdrawal_date_temp, "%Y-%m"),
+    in_service_date = format(actual_in_service_date_temp, "%Y-%m"),
+    in_queue_till = format(in_queue_till_temp, "%Y-%m")
+  )
+### Format a Out_Queue_Date variable based on Withdrawal_Date and In_Service_Date. This variable will be used to expand the planning queue data into a panel below. For completed projects, the Out_Queue_Date is the In_Service_Date. For active projects, the Out_Queue_Date is the In_Queue_Till.
+planning_queue = planning_queue %>%
+  mutate(out_queue_date = withdrawal_date) %>%
+  mutate(out_queue_date = if_else(
+    is.na(out_queue_date) & !(status %in% c("Withdrawn", "Canceled", "Deactivated")),
+    in_queue_till,
+    out_queue_date
+  )) %>%
+  # Correct entry errors
+  mutate(out_queue_date = case_when(
+    queue_number == "AF2-003" ~ "2020-08",
+    queue_number == "AC1-100" ~ "2020-11",
+    queue_number == "AB1-092" ~ "2021-08",
+    queue_number == "AA1-111" ~ "2021-08",
+    queue_number == "Z1-127"  ~ "2022-05",
+    queue_number == "U1-090"  ~ "2009-07",
+    status %in% c("Active", "Under Construction", "Engineering and Procurement") ~ NA_character_,
+    TRUE ~ out_queue_date
+  ))
+### Generate a Queue_Year varaible
+planning_queue = planning_queue %>% mutate(queue_year = substr(queue_date, 1, 4))
+### Keep relevant varaibles
+planning_queue = planning_queue %>% select(queue_number, status, fuel, queue_date, queue_year, in_service_date, out_queue_date, withdrawal_date, mfo)
+
+## Generate WindSolar variable and clean the fuel variable
+planning_queue = planning_queue %>%
+  mutate(wind_solar = as.integer(str_detect(fuel, "Solar") | str_detect(fuel, "Wind"))) %>%
+  mutate(fuel_prim = case_when(
+    str_detect(fuel, "Natural Gas") | str_detect(fuel, "Methane") ~ "Natural Gas",
+    str_detect(fuel, "Solar") ~ "Solar",
+    str_detect(fuel, "Wind") ~ "Wind",
+    str_detect(fuel, "Storage") ~ "Storage",
+    str_detect(fuel, "Coal") | str_detect(fuel, "Diesel") | str_detect(fuel, "Oil") ~ "Fossil",
+    TRUE ~ "Other"
+  ))
+
+## Genererate Status_Code variable
+planning_queue = planning_queue %>%
+  mutate(status_code = case_when(
+    str_detect(status, "Service") ~ 1,
+    status %in% c("Active", "Under Construction", "Engineering and Procurement", "Suspended") ~ 2,
+    status %in% c("Withdrawn", "Annulled", "Canceled", "Deactivated", "Retracted") ~ 3,
+    TRUE ~ NA_real_
+  )) %>%
+  select(-status)
+
+
+# Clean and Construct additional varaibles from the newly collected Interconnection Queue data
+
+## Generate Study ID
+collected_data$study_id = NA
+collected_data$study_id[ str_detect(collected_data$study, "Fea") & !str_detect(collected_data$study, "FeaImpFac") ] = 1
+collected_data$study_id[ str_detect(collected_data$study, "Imp") &
+            !str_detect(collected_data$study, "FeaImp") &
+            !str_detect(collected_data$study, "ImpFac") &
+            !str_detect(collected_data$study, "FeaImpFac") ] = 2
+collected_data$study_id[ str_detect(collected_data$study, "Fac") ] = 3
+ ### Handle special cases
+collected_data$study_id[ collected_data$queue_number == "X4-031" & collected_data$study == "Fea" ] = 1
+collected_data$study_id[ collected_data$queue_number == "X4-031" & collected_data$study == "FeaImp" ] = 2
+
+## Generate Last Study and Last Study ID
+collected_data = collected_data %>%
+  arrange(queue_number, study) %>%
+  group_by(queue_number) %>%
+  mutate(
+    first_study_tmep = first(study),
+    last_study_temp  = last(study),
+    last_study = if_else(first_study_tmep == "Fea", last_study_temp, first_study_tmep)
+  ) %>%
+  select(-first_study_tmep, -last_study_temp) %>%
+  ungroup()
+
+collected_data = collected_data %>%
+  arrange(queue_number, study_id) %>%
+  group_by(queue_number) %>%
+  mutate(
+    last_study_id = last(study_id)
+  ) %>%
+  ungroup()
+    
+## Generate Size_MW variable, which is the max of MWCapacity and MWEnergy
+collected_data = collected_data %>%
+  mutate(size_mw = pmax(energy_mw, capacity_mw, na.rm = TRUE))
+  
+## Generate variables that indicate whether the project receive an explicit network upgrade cost in the second study
+collected_data = collected_data %>%
+  mutate(network_allocation = as.integer(!is.na(network_upgrade_cost)))
+  
+## Generate variables that indicate whether a project receive a non-zero combined cost in the first study (which indicates that the project might be responsible for network upgrade cost in the second and third study)
+collected_data = collected_data %>%
+  mutate(s1costshare_temp = ifelse(study_id == 1, as.integer(combined_cost > 0), NA_integer_)) %>%
+  group_by(queue_number) %>%
+  arrange(study_id, .by_group = TRUE) %>%
+  mutate(
+    study1_cost_share = if (all(is.na(s1costshare_temp))) {
+      0L
+    } else {
+      first(na.omit(s1costshare_temp))
+    }
+  ) %>%
+  ungroup() %>%
+  select(-s1costshare_temp)
+  
+## Impute missing cost variables
+ ## Replace missing POI costs with 0
+ ## Replace missing study2 and study3 network upgrade costs with 0
+ ## Replace missing costs with 0
+collected_data = collected_data %>%
+  mutate(poi_cost = ifelse(is.na(poi_cost) , 0, poi_cost),
+         network_upgrade_cost = ifelse(is.na(network_upgrade_cost) & study_id %in% c(2, 3), 0, network_upgrade_cost),
+         total_cost = ifelse(is.na(total_cost), 0, total_cost))
+## Generate cost/MW varaibles
+collected_data = collected_data %>%
+  mutate(
+    poi_cost_mw = if_else(size_mw == 0, NA_real_, poi_cost / size_mw),
+    network_upgrade_cost_mw = if_else(size_mw == 0, NA_real_, network_upgrade_cost / size_mw),
+    total_cost_mw = if_else(size_mw == 0, NA_real_, total_cost / size_mw)
+  )
+  
+  
+  
+# Construct a series of PJM Queue_Size variables for each year-month (use the PJM planning queue data)
+
+## Expand the PJM planning queue data into a panel to prepare for generating the Queue_Size variables
+planning_queue_panel = planning_queue %>%
+  mutate(
+    queue_date = as.yearmon(queue_date, "%Y-%m"),
+    out_queue_date = as.yearmon(out_queue_date, "%Y-%m")
+  ) %>%
+  filter(!is.na(out_queue_date)) %>%
+  mutate(toexpand = round(12 * (out_queue_date - queue_date)) + 1) %>%
+  uncount(toexpand, .id = "month_index") %>%
+  mutate(MonthYear = queue_date + (month_index - 1) / 12) %>%
+  select(-month_index)
+
+## Extract the first Fuel listed in the data
+planning_queue_panel = planning_queue_panel %>% 
+   mutate(fuel1 = sub(";.*", "", fuel))
+
+## Make Queue_Size variables for each year-month and fuel type
+### Generate the varaibles by fuel type
+planning_queue_panel = planning_queue_panel %>%
+  mutate(
+    queue_size = 1,
+    queue_sizemw = mfo,  
+    queue_size_battery = if_else(fuel1 == "Storage", 1, 0),
+    queue_size_batterymw = if_else(fuel1 == "Storage", mfo, 0),
+    queue_size_wind = if_else(fuel1 == "Wind", 1, 0),
+    queue_size_windmw = if_else(fuel1 == "Wind", mfo, 0),
+    queue_size_solar = if_else(fuel1 == "Solar", 1, 0),
+    queue_size_solarmw = if_else(fuel1 == "Solar", mfo, 0),
+    queue_size_gas = if_else(fuel1 == "Natural Gas", 1, 0),
+    queue_size_gasmw = if_else(fuel1 == "Natural Gas", mfo, 0)
+  )
+### Aggregate by year-month
+planning_queue_panel = planning_queue_panel %>%
+  group_by(MonthYear) %>%
+  summarise(across(
+    c(queue_size, queue_sizemw, queue_size_battery, queue_size_batterymw,
+      queue_size_wind, queue_size_windmw, queue_size_solar, queue_size_solarmw,
+      queue_size_gas, queue_size_gasmw),
+    sum, na.rm = TRUE
+  )) %>%
+  ungroup()
+planning_queue_panel = planning_queue_panel %>% mutate(MonthYear = format(MonthYear, "%Y-%m"))
+### Remove mfo variable from the planning queue data because we don't need this varaible anymore
+planning_queue = planning_queue %>% select(-mfo) 
+  
+  
+  
+# Merge collected_data with planning_queue 
+data = collected_data %>%left_join(planning_queue, by = "queue_number")
+
+
+
+# Impute Issue_Date variable
+
+## Convert Issue_Date in year-month format
+data = data %>% mutate(
+    issue_date = str_replace(issue_date, "m", "-"),            
+    issue_date = as.yearmon(issue_date, "%Y-%m"),           
+    issue_date = format(issue_date, "%Y-%m")             
+  )
+
+## Fill in missing Issue_Date variable 
+  ## Feasibility study: assume the Issue_Date is 4 months after the Queue_Date, which is the PJM official study issuance timeline
+data = data %>%
+  mutate(
+    issue_date = if_else(
+      is.na(issue_date) & str_detect(study, "Fea"),
+      format(ym(queue_date) %m+% months(4), "%Y-%m"),
+      issue_date
+    )
+  )  
+  
+## Some project only has yyyy as Issue_Date instead of yyyy-mm-dd when we collected the data. This make some Issue_Date value extremely small after the above clean up. Use an ad hoc rules for now
+  ## Feasibility study: assume the Issue_Date is 4 months after the Queue_Date
+  ## Impact study: assume the Issue_Date is 11 months after the Queue_Date
+  ## Facility study: assume the Issue_Date is 18 months after the Queue_Date
+data = data %>%
+  mutate(
+    IssueDate_format = ym(issue_date),
+    QueueDate_format = ym(queue_date),
+    issue_date = case_when(
+      IssueDate_format < ym("2000-01") & str_detect(study, "Fea") ~ format(QueueDate_format %m+% months(4), "%Y-%m"),
+      IssueDate_format < ym("2000-01") & study == "Imp"           ~ format(QueueDate_format %m+% months(11), "%Y-%m"),
+      IssueDate_format < ym("2000-01") & study == "Fac"           ~ format(QueueDate_format %m+% months(18), "%Y-%m"),
+      TRUE ~ issue_date
+    )
+  ) %>%
+  select(-IssueDate_format, -QueueDate_format)
+
+  
+
+# Create Wait Time variables (wait time to receive a study)
+  ## feawait: wait time from entering to the queue to receiving the latest version of first study
+  ## impwait: wait time from receiving the first study to receiving the latest version of second study
+  ## facwait: wait time from receiving the second study to receiving the latest version of third study
+## Convert QueueDate and IssueDate to year-month format (YYYY-MM)
+data = data %>%
+  mutate(
+    QueueDate_format = gsub("m", "-", queue_date),  
+    IssueDate_format = gsub("m", "-", issue_date),  
+    QueueDate_format = ym(QueueDate_format),  
+    IssueDate_format = ym(IssueDate_format),
+    QueueDate_format = format(QueueDate_format, "%Y-%m"),
+    IssueDate_format = format(IssueDate_format, "%Y-%m")
+  )
+
+## Assign study-based date columns
+data = data %>%
+  mutate(
+    QueueDateFea = ifelse(study == "Fea", QueueDate_format, NA),
+    QueueDateFeaImp = ifelse(study == "FeaImp", QueueDate_format, NA),
+    IssueDateFea = ifelse(study == "Fea", IssueDate_format, NA),
+    IssueDateFeaImp = ifelse(study == "FeaImp", IssueDate_format, NA),
+    IssueDateImp = ifelse(study == "Imp", IssueDate_format, NA),
+    IssueDateImpFac = ifelse(study == "ImpFac", IssueDate_format, NA),
+    IssueDateFac = ifelse(study == "Fac", IssueDate_format, NA)
+  )
+
+## Fill missing values within the same queuenumber
+data = data %>%
+  group_by(queue_number) %>%
+  fill(QueueDateFea, QueueDateFeaImp, IssueDateFea, IssueDateFeaImp, IssueDateImp, IssueDateImpFac, IssueDateFac, .direction = "downup") %>%
+  ungroup()
+
+ ### Convert to date format for interval calculations while keeping Month-Year format
+data = data %>%
+  mutate(
+    QueueDateFea = ym(QueueDateFea),
+    QueueDateFeaImp = ym(QueueDateFeaImp),
+    IssueDateFea = ym(IssueDateFea),
+    IssueDateFeaImp = ym(IssueDateFeaImp),
+    IssueDateImp = ym(IssueDateImp),
+    IssueDateImpFac = ym(IssueDateImpFac),
+    IssueDateFac = ym(IssueDateFac)
+  )
+
+## Compute waiting times in months
+data = data %>%
+  mutate(
+    feawait = interval(QueueDateFea, IssueDateFea) %/% months(1), 
+    feawait = ifelse(is.na(feawait), interval(QueueDateFeaImp, IssueDateFeaImp) %/% months(1), feawait),
+    impwait = interval(IssueDateFea, IssueDateImp) %/% months(1),
+    impwait = ifelse(is.na(impwait), interval(QueueDateFeaImp, IssueDateFeaImp) %/% months(1), impwait),
+    impwait = ifelse(is.na(impwait), interval(IssueDateFea, IssueDateImpFac) %/% months(1), impwait),
+    facwait = interval(IssueDateImp, IssueDateFac) %/% months(1),
+    facwait = ifelse(is.na(facwait), interval(IssueDateFea, IssueDateImpFac) %/% months(1), facwait),
+    facwait = ifelse(is.na(facwait), interval(IssueDateFeaImp, IssueDateImpFac) %/% months(1), facwait)
+  )
+
+## Replace valuew with NA based on study
+data = data %>%
+  mutate(
+    study1_wait = na_if(ifelse(!(study %in% c("Fea", "FeaImp")), "", feawait), ""),
+    study2_wait = na_if(ifelse(!(study %in% c("FeaImp", "Imp")), "", impwait), ""),
+    study3_wait = na_if(ifelse(!(study %in% c("ImpFac", "Fac")), "", facwait), "")
+  )
+
+data = data %>%
+  select(-QueueDate_format, -IssueDate_format, -QueueDateFea, -QueueDateFeaImp, 
+         -IssueDateFea, -IssueDateFeaImp, -IssueDateImp, -IssueDateImpFac, -IssueDateFac,
+         -feawait, -impwait, -facwait)
+
+
+
+# Merge in Queue_Size variables
+## Queue size when the project enters the Interconnection queue
+data = data %>% 
+  mutate(MonthYear = queue_date) %>%
+  left_join(planning_queue_panel, by = "MonthYear") %>%
+  rename(queue_size_at_queue = queue_size,
+         queue_sizemw_at_queue = queue_sizemw) %>%
+  select(-MonthYear)
+
+planning_queue_panel = planning_queue_panel %>% select(MonthYear, queue_size, queue_sizemw)
+
+## Queue size when the project's study 1 is issued
+
+data = data %>%
+  mutate(MonthYear = if_else(study %in% c("Fea", "FeaImp"), issue_date, NA_character_)) %>%
+  left_join(planning_queue_panel, by = "MonthYear") %>%
+  rename(queue_size_at_study1 = queue_size,
+         queue_sizemw_at_study1 = queue_sizemw) %>%
+  select(-MonthYear)
+         
+## Queue size when the project's study 2 is issued
+
+data = data %>%
+  mutate(MonthYear = if_else(study %in% c("Imp", "FeaImp"), issue_date, NA_character_)) %>%
+  left_join(planning_queue_panel, by = "MonthYear") %>%
+  rename(queue_size_at_study2 = queue_size,
+         queue_sizemw_at_study2 = queue_sizemw) %>%
+  select(-MonthYear)
+  
+## Adjust costs variables for inflation using the to reflect real costs in 2020 dollars
+main_data = data %>%
+  mutate(year = as.integer(substr(issue_date, 1, 4))) %>%
+  left_join(cpi_data, by = "year") %>%
+  mutate(base_cpi_2020 = mean(cpilegns[year == 2020], na.rm = TRUE)) %>%
+  mutate(total_cost_2020 = total_cost * base_cpi_2020 / cpilegns,
+         poi_cost_2020 = poi_cost * base_cpi_2020 / cpilegns,
+         network_upgrade_cost_2020 = network_upgrade_cost * base_cpi_2020 / cpilegns,
+         combined_cost_2020 = combined_cost * base_cpi_2020 / cpilegns,
+         direct_cost_2020 = direct_cost * base_cpi_2020 / cpilegns,
+         nondirect_cost_2020 = nondirect_cost * base_cpi_2020 / cpilegns,
+         attachment_cost_2020 = attachment_cost * base_cpi_2020 / cpilegns,
+         newsystem_upgrade_cost_2020 = newsystem_upgrade_cost * base_cpi_2020 / cpilegns,
+         prevsystem_upgrade_cost_2020 = prevsystem_upgrade_cost * base_cpi_2020 / cpilegns,
+         total_cost_mw_2020 = total_cost_mw * base_cpi_2020 / cpilegns,
+         poi_cost_mw_2020 = poi_cost_mw * base_cpi_2020 / cpilegns,
+         network_upgrade_cost_mw_2020 = network_upgrade_cost_mw * base_cpi_2020 / cpilegns)
+  
+
+# Output Data
+options(scipen = 999) # Temporarily disable scientific notation
+write.csv(main_data, "data/interconnection/pjm_main_data_for_public_with_additional_vars.csv", row.names = FALSE, na = "")
+options(scipen = 0)
+
