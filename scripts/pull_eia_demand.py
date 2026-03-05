@@ -11,8 +11,8 @@ YEARS = list(range(2019, 2026))
 BASE_URL = "https://api.eia.gov/v2/electricity/rto/region-data/data/"
 
 def pull_region_year(region, year):
-    start = f"{year}-01-01"
-    end = f"{year}-12-31"
+    start = f"{year}-01-01T00"
+    end = f"{year}-12-31T23"
     all_records = []
     offset = 0
     page_size = 5000
@@ -22,6 +22,7 @@ def pull_region_year(region, year):
             "frequency": "hourly",
             "data[0]": "value",
             "facets[respondent][]": region,
+            "facets[type][]": "D",
             "start": start,
             "end": end,
             "length": page_size,
@@ -36,11 +37,11 @@ def pull_region_year(region, year):
                 time.sleep(30)
                 continue
             records = data["response"]["data"]
-            all_records.extend(records)
             total = int(data["response"]["total"])
-            offset += page_size
-            print(f"  {region} {year}: pulled {min(offset, total)}/{total} records")
-            if offset >= total:
+            all_records.extend(records)
+            offset += len(records)
+            print(f"  {region} {year}: pulled {offset}/{total} records")
+            if offset >= total or len(records) == 0:
                 break
             time.sleep(0.5)
         except Exception as e:

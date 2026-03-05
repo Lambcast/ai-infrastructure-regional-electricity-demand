@@ -50,7 +50,7 @@ A thorough search confirms no existing paper uses interconnection queue filings 
 
 | Dataset | Source | Status |
 |---|---|---|
-| EIA Form 930 hourly demand | eia.gov/opendata | ✅ 153,587 rows pulled (2019–2025) |
+| EIA Form 930 hourly demand | eia.gov/opendata | ✅ 184,102 rows pulled (2019–2025) |
 | UMD PJM Queue 2008–2020 | UMD Economics Dept. (NSF-funded) | ✅ In hand |
 | LBL Queued Up 2025 | Lawrence Berkeley National Lab | ✅ In hand |
 | NOAA Weather (HDD/CDD) | NCEI Climate Data Online API | Pending |
