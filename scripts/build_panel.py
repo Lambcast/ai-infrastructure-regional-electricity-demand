@@ -28,6 +28,12 @@ Notes on data cleaning:
   - EIA data contains three corrupt PJM rows from 2021-10-19 with values
     in the billions of MWh. These are filtered out with a 500,000 MWh cap,
     consistent with explore_eia.py.
+  - MISO queue data contains two batch-filing months (2022-09: 883 projects,
+    162 GW; 2024-04: 547 projects, 107 GW) where MISO processed a large
+    administrative backlog and stamped all projects with the same queue date.
+    These are capped at the 99th percentile of monthly filings per BA to
+    prevent them from dominating the panel and distorting lag variables.
+    This decision is documented as an explicit data cleaning step.
 """
 
 import os
@@ -150,6 +156,23 @@ flow = flow.merge(count_filed, on=["ba", "year_month"], how="left")
 flow["queue_mw_filed_large"] = flow["queue_mw_filed_large"].fillna(0)
 
 print(f"  Flow rows: {len(flow):,}")
+print()
+
+# ── Step 3b: Cap batch-filing outliers at 99th percentile per BA ──────────────
+print("Step 3b: Capping batch-filing outliers...")
+
+p99 = flow.groupby("ba")["queue_mw_filed"].quantile(0.99)
+before = flow["queue_mw_filed"].max()
+flow["queue_mw_filed"] = flow.apply(
+    lambda row: min(row["queue_mw_filed"], p99[row["ba"]]),
+    axis=1
+)
+after = flow["queue_mw_filed"].max()
+print(f"  Max queue_mw_filed before cap: {before:,.0f} MW")
+print(f"  Max queue_mw_filed after cap:  {after:,.0f} MW")
+print(f"  99th percentile caps by BA:")
+for ba, val in p99.items():
+    print(f"    {ba}: {val:,.0f} MW")
 print()
 
 # ── Step 4: Build complete BA x month scaffold (2019-01 to 2025-12) ──────────
