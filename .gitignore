@@ -29,3 +29,7 @@ Thumbs.db
 
 # VS Code
 .vscode/
+
+~*
+
+*.stswp
