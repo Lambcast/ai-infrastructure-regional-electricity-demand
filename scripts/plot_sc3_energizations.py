@@ -79,7 +79,7 @@ ax.set_title(
     fontsize=13, fontweight="bold"
 )
 ax.set_xlabel("Month", fontsize=11)
-ax.set_ylabel("Gap: Actual − Synthetic Min Demand (MWh)", fontsize=10)
+ax.set_ylabel("Gap (index points, 2019=100)", fontsize=10)
 ax.legend(fontsize=9)
 ax.grid(axis="y", linestyle="--", alpha=0.4)
 ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))

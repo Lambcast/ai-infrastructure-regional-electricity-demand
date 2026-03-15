@@ -90,6 +90,12 @@ axes[1].annotate(
 )
 
 axes[1].set_xlabel("Month", fontsize=10)
+axes[1].text(0.5, -0.15,
+    "Note: CAISO minimum demand reflects mild Pacific climate and high behind-the-meter solar penetration,\n"
+    "not grid load growth. The flat trend is the relevant comparison to ERCOT's rising demand floor.",
+    transform=axes[1].transAxes, fontsize=8, ha="center", va="top",
+    style="italic", color="#555555"
+)
 plt.tight_layout()
 plt.savefig("outputs/caiso_vs_ercot_comparison.png", dpi=150, bbox_inches="tight")
 plt.close()
