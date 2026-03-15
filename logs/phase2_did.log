@@ -1,0 +1,386 @@
+------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\alamb\OneDrive\Alans Work Folder\independent projects\ai-electricity-demand\logs/phase2_did.
+> log
+  log type:  text
+ opened on:  14 Mar 2026, 17:00:41
+
+. 
+. display "Session started: $S_DATE $S_TIME"
+Session started: 14 Mar 2026 17:00:41
+
+. 
+. 
+. // ===========================================================================
+. // SECTION 1: DATA PREPARATION
+. // ===========================================================================
+. 
+. import delimited "data/panel_expanded.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(10 vars, 504 obs)
+
+. rename ba ba_id
+
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. encode ba_id, gen(ba_num)
+
+. 
+. // Keep ERCO and low-exposure BAs only — drop PJM and MISO
+. drop if ba_num == 3 | ba_num == 5
+(168 observations deleted)
+
+. // Remaining: ERCO(1), ISNE(2), NYIS(4), SWPP(6)
+. 
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. 
+. // Index demand — 2019 average = 100
+. bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+(288 missing values generated)
+
+. bysort ba_num: egen demand_base = mean(demand_2019)
+
+. gen demand_idx = (avg_demand_mwh / demand_base) * 100
+
+. drop demand_2019
+
+. 
+. // Treatment indicator
+. gen post = (month_year >= 760)
+
+. gen treated = (ba_num == 1)
+
+. gen did = post * treated
+
+. 
+. // Verify
+. tabstat demand_idx if post == 0, by(ba_id) stats(mean)
+
+Summary for variables: demand_idx
+Group variable: ba_id 
+
+ ba_id |      Mean
+-------+----------
+  ERCO |  103.1364
+  ISNE |  98.44274
+  NYIS |   97.3965
+  SWPP |  100.0669
+-------+----------
+ Total |  99.76064
+------------------
+
+. tabstat demand_idx if post == 1, by(ba_id) stats(mean)
+
+Summary for variables: demand_idx
+Group variable: ba_id 
+
+ ba_id |      Mean
+-------+----------
+  ERCO |  124.1521
+  ISNE |  96.52955
+  NYIS |  96.69557
+  SWPP |   108.743
+-------+----------
+ Total |  106.5301
+------------------
+
+. 
+. 
+. // ===========================================================================
+. // SECTION 2: PARALLEL TRENDS CHECK — VISUAL
+. // ===========================================================================
+. // With 4 units parallel trends cannot be formally tested with power.
+. // Present visual evidence — pre-treatment demand trajectories by BA.
+. 
+. display _newline "--- PRE-TREATMENT DEMAND TRENDS ---"
+
+--- PRE-TREATMENT DEMAND TRENDS ---
+
+. tabstat demand_idx if month_year < 760, by(ba_id) stats(mean sd)
+
+Summary for variables: demand_idx
+Group variable: ba_id 
+
+ ba_id |      Mean        SD
+-------+--------------------
+  ERCO |  103.1364  14.96031
+  ISNE |  98.44274  11.43228
+  NYIS |   97.3965  11.47233
+  SWPP |  100.0669  11.65733
+-------+--------------------
+ Total |  99.76064  12.56888
+----------------------------
+
+. 
+. 
+. // ===========================================================================
+. // SECTION 3: PRIMARY DiD SPECIFICATION
+. // ===========================================================================
+. // Outcome: demand_idx
+. // Treatment: did = post x treated
+. // Fixed effects: BA-level and month-year
+. // Controls: hdd, cdd, gdp
+. // Inference: wild cluster bootstrap, Webb weights
+. // Note: absorb(month_year) only — i.ba_num carried explicitly
+. //       Required for boottest compatibility
+. 
+. display _newline "--- SECTION 3: PRIMARY DiD ---"
+
+--- SECTION 3: PRIMARY DiD ---
+
+. 
+. reghdfe demand_idx did hdd cdd gdp i.ba_num, absorb(month_year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        336
+Absorbing 1 HDFE group                            F(   7,      3) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9467
+                                                  Adj R-squared   =     0.9271
+                                                  Within R-sq.    =     0.8566
+Number of clusters (ba_id)   =          4         Root MSE        =     4.0391
+
+                                  (Std. err. adjusted for 4 clusters in ba_id)
+------------------------------------------------------------------------------
+             |               Robust
+  demand_idx | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         did |   9.827501   8.595923     1.14   0.336    -17.52856    37.18357
+         hdd |   .0014813   .0041867     0.35   0.747    -.0118427    .0148054
+         cdd |    .071279    .007823     9.11   0.003     .0463827    .0961753
+         gdp |   .0000212   .0000399     0.53   0.632    -.0001057    .0001481
+             |
+      ba_num |
+       ISNE  |   21.57455   31.68055     0.68   0.545    -79.24709    122.3962
+       NYIS  |   6.385747   6.692941     0.95   0.410    -14.91418    27.68567
+       SWPP  |    31.7052   51.84387     0.61   0.584    -133.2851    196.6955
+             |
+       _cons |   45.85124   78.37002     0.59   0.600    -203.5571    295.2596
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        84           0          84     |
+-----------------------------------------------------+
+
+. 
+. boottest did, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridmax(2)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_id, W
+> ebb weights:
+  did
+
+                            t(3) =     1.1433
+                        Prob>|t| =     0.1451
+
+95% confidence set for null hypothesis expression: (−∞, ∞)
+(A confidence set could not be bounded. Try widening the search range with the gridmin() and gridmax() options.)
+
+. 
+. // Record: coefficient on did, boottest CI, boottest p-value
+. // Compare to SC-3 gap of 24.5 index points
+. // If did coefficient > 24.5, contamination lower bound confirmed
+. 
+. 
+. // ===========================================================================
+. // SECTION 4: ROBUSTNESS — NO GDP CONTROL
+. // ===========================================================================
+. 
+. display _newline "--- SECTION 4: DiD ROBUSTNESS NO GDP ---"
+
+--- SECTION 4: DiD ROBUSTNESS NO GDP ---
+
+. 
+. reghdfe demand_idx did hdd cdd i.ba_num, absorb(month_year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        336
+Absorbing 1 HDFE group                            F(   6,      3) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9450
+                                                  Adj R-squared   =     0.9251
+                                                  Within R-sq.    =     0.8520
+Number of clusters (ba_id)   =          4         Root MSE        =     4.0949
+
+                                  (Std. err. adjusted for 4 clusters in ba_id)
+------------------------------------------------------------------------------
+             |               Robust
+  demand_idx | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         did |   14.98639   2.795412     5.36   0.013     6.090146    23.88264
+         hdd |   .0009008   .0033564     0.27   0.806    -.0097806    .0115823
+         cdd |   .0706769    .007739     9.13   0.003     .0460481    .0953057
+             |
+      ba_num |
+       ISNE  |    5.13343   2.026321     2.53   0.085    -1.315227    11.58209
+       NYIS  |   3.298158   1.777537     1.86   0.161    -2.358758    8.955073
+       SWPP  |   4.500574   1.211042     3.72   0.034     .6464991    8.354648
+             |
+       _cons |   86.70272   1.731975    50.06   0.000      81.1908    92.21463
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        84           0          84     |
+-----------------------------------------------------+
+
+. 
+. boottest did, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridmax(2)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_id, W
+> ebb weights:
+  did
+
+                            t(3) =     5.3611
+                        Prob>|t| =     0.1672
+
+95% confidence set for null hypothesis expression: (−∞, ∞)
+(A confidence set could not be bounded. Try widening the search range with the gridmin() and gridmax() options.)
+
+. 
+. 
+. // ===========================================================================
+. // SECTION 5: EVENT STUDY — DYNAMIC TREATMENT EFFECTS
+. // ===========================================================================
+. // Plot coefficients for leads and lags around treatment date.
+. // Pre-treatment coefficients should be near zero — parallel trends visual.
+. // Post-treatment coefficients show how the gap opened over time.
+. 
+. display _newline "--- SECTION 5: EVENT STUDY ---"
+
+--- SECTION 5: EVENT STUDY ---
+
+. 
+. // Create event time variable (months relative to treatment)
+. gen event_time = month_year - 760
+
+. 
+. // Bin distant periods to preserve degrees of freedom
+. gen event_bin = event_time
+
+. replace event_bin = -24 if event_time < -24
+(112 real changes made)
+
+. replace event_bin = 24 if event_time > 24
+(28 real changes made)
+
+. 
+. // Generate event time dummies interacted with treated
+. // Omit t=-1 as reference period
+. tab event_bin, gen(evt_)
+
+  event_bin |      Freq.     Percent        Cum.
+------------+-----------------------------------
+        -24 |        116       34.52       34.52
+        -23 |          4        1.19       35.71
+        -22 |          4        1.19       36.90
+        -21 |          4        1.19       38.10
+        -20 |          4        1.19       39.29
+        -19 |          4        1.19       40.48
+        -18 |          4        1.19       41.67
+        -17 |          4        1.19       42.86
+        -16 |          4        1.19       44.05
+        -15 |          4        1.19       45.24
+        -14 |          4        1.19       46.43
+        -13 |          4        1.19       47.62
+        -12 |          4        1.19       48.81
+        -11 |          4        1.19       50.00
+        -10 |          4        1.19       51.19
+         -9 |          4        1.19       52.38
+         -8 |          4        1.19       53.57
+         -7 |          4        1.19       54.76
+         -6 |          4        1.19       55.95
+         -5 |          4        1.19       57.14
+         -4 |          4        1.19       58.33
+         -3 |          4        1.19       59.52
+         -2 |          4        1.19       60.71
+         -1 |          4        1.19       61.90
+          0 |          4        1.19       63.10
+          1 |          4        1.19       64.29
+          2 |          4        1.19       65.48
+          3 |          4        1.19       66.67
+          4 |          4        1.19       67.86
+          5 |          4        1.19       69.05
+          6 |          4        1.19       70.24
+          7 |          4        1.19       71.43
+          8 |          4        1.19       72.62
+          9 |          4        1.19       73.81
+         10 |          4        1.19       75.00
+         11 |          4        1.19       76.19
+         12 |          4        1.19       77.38
+         13 |          4        1.19       78.57
+         14 |          4        1.19       79.76
+         15 |          4        1.19       80.95
+         16 |          4        1.19       82.14
+         17 |          4        1.19       83.33
+         18 |          4        1.19       84.52
+         19 |          4        1.19       85.71
+         20 |          4        1.19       86.90
+         21 |          4        1.19       88.10
+         22 |          4        1.19       89.29
+         23 |          4        1.19       90.48
+         24 |         32        9.52      100.00
+------------+-----------------------------------
+      Total |        336      100.00
+
+. 
+. // This is complex with 4 units — run simplified version
+. // Report pre vs post averages as the primary evidence
+. // Full event study requires more units for credible pre-trend testing
+. 
+. display "Event study requires more units for credible pre-trend testing."
+Event study requires more units for credible pre-trend testing.
+
+. display "Reporting pre/post averages as primary parallel trends evidence."
+Reporting pre/post averages as primary parallel trends evidence.
+
+. 
+. summarize demand_idx if treated == 1 & post == 0
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+  demand_idx |         52    103.1364    14.96031   83.74802   141.1891
+
+. summarize demand_idx if treated == 0 & post == 0
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+  demand_idx |        156    98.63537    11.49944   80.03316   129.4623
+
+. summarize demand_idx if treated == 1 & post == 1
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+  demand_idx |         32    124.1521    17.09405   99.65804   155.0845
+
+. summarize demand_idx if treated == 0 & post == 1
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+  demand_idx |         96    100.6561    13.10803    78.0725   132.7416
+
+. 
+. log close
+      name:  <unnamed>
+       log:  C:\Users\alamb\OneDrive\Alans Work Folder\independent projects\ai-electricity-demand\logs/phase2_did.
+> log
+  log type:  text
+ closed on:  14 Mar 2026, 17:00:45
+------------------------------------------------------------------------------------------------------------------

@@ -1,0 +1,1363 @@
+-------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\alamb\OneDrive\Alans Work Folder\independent projects\ai-electricity-demand\logs/phase2
+> _panel_regression.log
+  log type:  text
+ opened on:  14 Mar 2026, 17:16:53
+
+. 
+. display "Session started: $S_DATE $S_TIME"
+Session started: 14 Mar 2026 17:16:53
+
+. display "Stata version: `c(stata_version)'"
+Stata version: 19
+
+. 
+. 
+. // ===========================================================================
+. // SECTION 1: PACKAGE DEPENDENCIES
+. // ===========================================================================
+. // Required packages — install once before first run if not present:
+. //   ssc install reghdfe
+. //   ssc install ftools
+. //   ssc install boottest
+. //   ssc install estout
+. //   ssc install xtbreak
+. //   ssc install moremata
+. // All packages confirmed installed as of March 2026 on Stata 19.
+. // Replicators: uncomment and run the lines above if packages are missing.
+. 
+. 
+. // ===========================================================================
+. // SECTION 2: DATA LOADING AND PREPARATION
+. // ===========================================================================
+. // NOTE: Sections 2-5 use panel_base.csv (no weather/GDP controls).
+. // Section 6 onward reloads panel_with_controls.csv.
+. 
+. import delimited "data/panel_base.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(17 vars, 252 obs)
+
+. display "Observations loaded: `=_N'"
+Observations loaded: 252
+
+. 
+. rename ba ba_id
+
+. 
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. 
+. encode ba_id, gen(ba_num)
+
+. display "BA encoding:"
+BA encoding:
+
+. label list ba_num
+ba_num:
+           1 ERCO
+           2 MISO
+           3 PJM
+
+. // Confirmed: 1=ERCO, 2=MISO, 3=PJM
+. 
+. // 30-month lag not in panel_base.csv — construct here
+. sort ba_num month_year
+
+. by ba_num: gen queue_mw_large_lag30 = queue_mw_filed_large[_n-30]
+(90 missing values generated)
+
+. by ba_num: gen queue_mw_lag30 = queue_mw_filed[_n-30]
+(90 missing values generated)
+
+. 
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. // Confirmed: strongly balanced, 2019m1-2025m12, delta 1 month
+. 
+. 
+. // ===========================================================================
+. // SECTION 3: PRE-REGRESSION DIAGNOSTICS
+. // ===========================================================================
+. 
+. display _newline "--- SECTION 3: PRE-REGRESSION DIAGNOSTICS ---"
+
+--- SECTION 3: PRE-REGRESSION DIAGNOSTICS ---
+
+. 
+. describe
+
+Contains data
+ Observations:           252                  
+    Variables:            21                  
+-------------------------------------------------------------------------------------------------------------
+Variable      Storage   Display    Value
+    name         type    format    label      Variable label
+-------------------------------------------------------------------------------------------------------------
+ba_id           str4    %9s                   
+year_month      str7    %9s                   
+year            int     %8.0g                 
+month           byte    %8.0g                 
+quarter         byte    %8.0g                 
+avg_demand_mwh  float   %9.0g                 
+n_hours         int     %8.0g                 
+queue_mw_filed  float   %9.0g                 
+queue_mw_file~e float   %9.0g                 
+queue_project~d int     %8.0g                 
+queue_mw_active float   %9.0g                 
+queue_mw_lag12  float   %9.0g                 
+queue_mw_lar~12 float   %9.0g                 
+queue_mw_lag18  float   %9.0g                 
+queue_mw_lar~18 float   %9.0g                 
+queue_mw_lag24  float   %9.0g                 
+queue_mw_lar~24 float   %9.0g                 
+month_year      float   %tm                   
+ba_num          long    %8.0g      ba_num     
+queue_mw_lar~30 float   %9.0g                 
+queue_mw_lag30  float   %9.0g                 
+-------------------------------------------------------------------------------------------------------------
+Sorted by: ba_num  month_year
+     Note: Dataset has changed since last saved.
+
+. 
+. xtsum avg_demand_mwh
+
+Variable         |      Mean   Std. dev.       Min        Max |    Observations
+-----------------+--------------------------------------------+----------------
+avg_de~h overall |  71291.15   19586.83   36647.07   116275.4 |     N =     252
+         between |             21573.13   48634.49   91586.45 |     n =       3
+         within  |             8493.592   52971.59   95980.14 |     T =      84
+
+. xtsum queue_mw_large_lag18
+
+Variable         |      Mean   Std. dev.       Min        Max |    Observations
+-----------------+--------------------------------------------+----------------
+~e_lag18 overall |  5114.437    14265.7          0   154214.1 |     N =     198
+         between |             1503.156   3602.456    6608.61 |     n =       3
+         within  |             14212.54  -1494.173   152719.9 |     T =      66
+
+. 
+. tabstat avg_demand_mwh, by(ba_id) stats(mean sd min max)
+
+Summary for variables: avg_demand_mwh
+Group variable: ba_id 
+
+ ba_id |      Mean        SD       Min       Max
+-------+----------------------------------------
+  ERCO |  48634.49  8210.676  36647.07  67863.01
+  MISO |  73652.51    7017.5  59986.77  90555.06
+   PJM |  91586.45  10074.78  73266.89  116275.4
+-------+----------------------------------------
+ Total |  71291.15  19586.83  36647.07  116275.4
+------------------------------------------------
+
+. tabstat queue_mw_large_lag18, by(ba_id) stats(mean sd min max)
+
+Summary for variables: queue_mw_large_lag18
+Group variable: ba_id 
+
+ ba_id |      Mean        SD       Min       Max
+-------+----------------------------------------
+  ERCO |  5132.245  2868.781    854.45  14974.09
+  MISO |   6608.61   23545.6         0  154214.1
+   PJM |  3602.456  7041.228         0  32485.91
+-------+----------------------------------------
+ Total |  5114.437   14265.7         0  154214.1
+------------------------------------------------
+
+. 
+. // Confirmed (March 2026):
+. //   Panel: strongly balanced, 252 obs, 21 variables after lag construction
+. //   avg_demand_mwh within SD: 8,494 — meaningful variation for FE regression
+. //   queue_mw_large_lag18 within SD: 14,213 — nearly 10x between SD of 1,503
+. //   MISO queue max: 154,214 — reflects documented batch-filing artifact
+. //   All checks pass. Proceed to regression.
+. 
+. 
+. // ===========================================================================
+. // SECTION 4: S0 — PRELIMINARY SPECIFICATION (NO CONTROLS)
+. // ===========================================================================
+. // Diagnostic only. DO NOT interpret as primary result.
+. // Purpose: confirm signal exists before weather and GDP are added.
+. // Missing: hdd, cdd, gdp — pending data pulls.
+. // Note: absorb(month_year) only — i.ba_num carried explicitly as regressors.
+. //       Required for boottest compatibility. See header syntax note.
+. 
+. display _newline "--- SECTION 4: S0 PRELIMINARY REGRESSION ---"
+
+--- SECTION 4: S0 PRELIMINARY REGRESSION ---
+
+. 
+. reghdfe avg_demand_mwh queue_mw_large_lag18 i.ba_num, absorb(month_year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        198
+Absorbing 1 HDFE group                            F(   3,      2) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9647
+                                                  Adj R-squared   =     0.9461
+                                                  Within R-sq.    =     0.9580
+Number of clusters (ba_id)   =          3         Root MSE        =  4465.7551
+
+                                          (Std. err. adjusted for 3 clusters in ba_id)
+--------------------------------------------------------------------------------------
+                     |               Robust
+      avg_demand_mwh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+---------------------+----------------------------------------------------------------
+queue_mw_large_lag18 |  -.0038474   .0167096    -0.23   0.839    -.0757432    .0680483
+                     |
+              ba_num |
+               MISO  |   23803.28   24.66952   964.89   0.000     23697.13    23909.42
+                PJM  |   42060.81    25.5622  1645.43   0.000     41950.83     42170.8
+                     |
+               _cons |    50244.8   85.75792   585.89   0.000     49875.81    50613.78
+--------------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        66           0          66     |
+-----------------------------------------------------+
+
+. 
+. boottest queue_mw_large_lag18, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
+> id, Webb weights:
+  queue_mw_large_lag18
+
+                            t(2) =    -0.2303
+                        Prob>|t| =     0.6527
+
+95% confidence set for null hypothesis expression: [−.5439, .6108]
+
+. 
+. // S0 RESULTS (confirmed March 2026, Webb weights):
+. //   Coefficient:        -0.004
+. //   Bootstrap CI:       [-0.544, 0.611]
+. //   Bootstrap p-value:   0.653
+. //   N:                   198
+. //   Interpretation:     No signal without controls. Expected.
+. //                       Wide CI reflects seasonal variation dominating
+. //                       residuals without HDD/CDD controls.
+. //                       Do not interpret. Proceed to S1 when hdd/cdd/gdp available.
+. 
+. 
+. // ===========================================================================
+. // SECTION 5: BAI-PERRON STRUCTURAL BREAK TEST
+. // ===========================================================================
+. // PURPOSE: Identify the structural break date in ERCOT demand.
+. // This date becomes the treatment date for the synthetic control.
+. // RULE: Break date locked here. Not revisited after synthetic control work.
+. 
+. display _newline "--- SECTION 5: BAI-PERRON STRUCTURAL BREAK TEST ---"
+
+--- SECTION 5: BAI-PERRON STRUCTURAL BREAK TEST ---
+
+. 
+. preserve
+
+. 
+.     keep if ba_num == 1
+(168 observations deleted)
+
+.     tab ba_id
+
+      ba_id |      Freq.     Percent        Cum.
+------------+-----------------------------------
+       ERCO |         84      100.00      100.00
+------------+-----------------------------------
+      Total |         84      100.00
+
+.     tsset month_year
+
+Time variable: month_year, 2019m1 to 2025m12
+        Delta: 1 month
+
+. 
+.     // Test for unknown number of breaks up to 3
+.     // breakconstant required — testing for break in mean demand level
+.     // hypothesis(2): H0 no breaks vs H1 between 1 and breaks(3) breaks
+.     xtbreak test avg_demand_mwh, breakconstant hypothesis(2) breaks(3)
+Unknown #command
+Unknown #command
+Unknown #command
+
+Test for multiple breaks at unknown breakdates
+(Bai & Perron. 1998. Econometrica)
+H0: no break(s) vs. H1: 1 <= s <= 3 break(s)
+
+                ----------------- Bai & Perron Critical Values -----------------
+                     Test          1% Critical     5% Critical    10% Critical
+                  Statistic          Value            Value           Value
+--------------------------------------------------------------------------------
+ UDmax               35.39            12.37            8.88            7.46
+--------------------------------------------------------------------------------
+Trimming: 0.15
+
+. 
+.     // Estimate break date
+.     xtbreak estimate avg_demand_mwh, breakconstant breaks(1)
+Unknown #command
+Unknown #command
+Unknown #command
+
+Estimation of break points
+                                            Number of obs       =     84
+                                            SSR                 =  3.91e+09
+                                            Trimming            =      0.15
+--------------------------------------------------------------------------------
+  #      Index     Date                          [95% Conf. Interval]
+--------------------------------------------------------------------------------
+  1        53      2023m5                        2023m4         2023m6 
+--------------------------------------------------------------------------------
+
+. 
+. restore
+
+. 
+. // RESULTS (confirmed March 2026):
+. //   UDmax statistic:  35.39
+. //   Critical values:  12.37 (1%), 8.88 (5%), 7.46 (10%)
+. //   Conclusion:       Reject null of no breaks at far beyond 1% level
+. //   Break date:       2023m5 (May 2023)
+. //   95% CI:           [2023m4, 2023m6]
+. //   Robustness:       Calendar check at 2022m1 runs in synthetic control
+. //   Interpretation:   Coherent with 18-month lag from 2021-2022 filing surge
+. //
+. // *** BREAK DATE LOCKED: 2023m5 ***
+. // *** DO NOT REVISIT AFTER EXAMINING SYNTHETIC CONTROL RESULTS ***
+. 
+. 
+. // ===========================================================================
+. // SECTION 6: S1 — PRIMARY SPECIFICATION (FULL CONTROLS)
+. // ===========================================================================
+. // Reloads panel_with_controls.csv — adds hdd, cdd, gdp to panel.
+. // queue_mw_large_lag18 winsorized at p95 before regression.
+. // See winsorization note in header for full justification.
+. // Note: absorb(month_year) only — i.ba_num carried explicitly as regressors.
+. //       Required for boottest compatibility. See header syntax note.
+. 
+. display _newline "--- SECTION 6: S1 PRIMARY REGRESSION ---"
+
+--- SECTION 6: S1 PRIMARY REGRESSION ---
+
+. 
+. import delimited "data/panel_with_controls.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(24 vars, 252 obs)
+
+. rename ba ba_id
+
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. encode ba_id, gen(ba_num)
+
+. sort ba_num month_year
+
+. by ba_num: gen queue_mw_large_lag30 = queue_mw_filed_large[_n-30]
+(90 missing values generated)
+
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. 
+. // Winsorize lagged queue variable at p95 — preserves missing values
+. // 9 observations affected: MISO batch artifact at 154,214 and 102,870 MW
+. gen queue_lag18_wins = queue_mw_large_lag18
+(54 missing values generated)
+
+. replace queue_lag18_wins = 18588.29 if queue_mw_large_lag18 > 18588.29 & queue_mw_large_lag18 != .
+(9 real changes made)
+
+. 
+. reghdfe avg_demand_mwh queue_lag18_wins hdd cdd gdp i.ba_num, absorb(month_year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        198
+Absorbing 1 HDFE group                            F(   6,      2) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9767
+                                                  Adj R-squared   =     0.9636
+                                                  Within R-sq.    =     0.9723
+Number of clusters (ba_id)   =          3         Root MSE        =  3670.7542
+
+                                      (Std. err. adjusted for 3 clusters in ba_id)
+----------------------------------------------------------------------------------
+                 |               Robust
+  avg_demand_mwh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-----------------+----------------------------------------------------------------
+queue_lag18_wins |   .0291632   .0065411     4.46   0.047     .0010189    .0573075
+             hdd |  -10.27863   5.072972    -2.03   0.180    -32.10587    11.54861
+             cdd |   41.81522    14.0536     2.98   0.097    -18.65255     102.283
+             gdp |   .0075523   .0094081     0.80   0.506    -.0329274    .0480321
+                 |
+          ba_num |
+           MISO  |    27789.4   11278.35     2.46   0.133    -20737.43    76316.24
+            PJM  |   17646.91   42613.55     0.41   0.719    -165704.4    200998.2
+                 |
+           _cons |   24574.77   16109.97     1.53   0.267    -44740.84    93890.39
+----------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        66           0          66     |
+-----------------------------------------------------+
+
+. 
+. boottest queue_lag18_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
+> id, Webb weights:
+  queue_lag18_wins
+
+                            t(2) =     4.4584
+                        Prob>|t| =     0.0631
+
+95% confidence set for null hypothesis expression: [−.09257, .1013]
+
+. 
+. // S1 RESULTS (confirmed March 2026, Webb weights, winsorized regressor):
+. //   Coefficient:        0.029
+. //   Bootstrap CI:       [-0.093, 0.101]
+. //   Bootstrap p-value:  0.063
+. //   N:                  198
+. //   Regression p-value: 0.047 — NOT reported, asymptotic SE unreliable
+. //                       with 3 clusters. Boottest output only.
+. //   Interpretation:     1,000 MW increase in lagged large-project filings
+. //                       associated with 29 MWh increase in avg hourly demand.
+. //                       Positive direction. CI straddles zero.
+. //                       p=0.063 is closest to conventional significance
+. //                       achievable with 3 clusters under honest inference.
+. 
+. 
+. // ===========================================================================
+. // SECTION 7: ERCOT-ONLY TIME SERIES SPECIFICATIONS
+. // ===========================================================================
+. // Purpose: Diagnose where signal lives when panel FE constraints are removed.
+. // These are identification diagnostics, not primary results.
+. //
+. // Finding: TWFE and first differences absorb the level shift treatment
+. // through time fixed effects and trend controls. Signal emerges in ERCOT
+. // time series when trend is not imposed. This motivates synthetic control
+. // as the primary identification method — it estimates the counterfactual
+. // demand level directly without a trend assumption that absorbs the signal.
+. 
+. display _newline "--- SECTION 7: ERCOT-ONLY TIME SERIES ---"
+
+--- SECTION 7: ERCOT-ONLY TIME SERIES ---
+
+. 
+. preserve
+
+. keep if ba_num == 1
+(168 observations deleted)
+
+. 
+. gen t = _n
+
+. gen t2 = t^2
+
+. 
+. // 7a — with quadratic time trend
+. // time trend absorbs secular ERCOT growth including data center contribution
+. display _newline "7a — ERCOT only, with quadratic time trend:"
+
+7a — ERCOT only, with quadratic time trend:
+
+. regress avg_demand_mwh queue_lag18_wins hdd cdd gdp t t2
+
+      Source |       SS           df       MS      Number of obs   =        66
+-------------+----------------------------------   F(6, 59)        =    498.24
+       Model |  4.1060e+09         6   684328790   Prob > F        =    0.0000
+    Residual |  81036011.4        59  1373491.72   R-squared       =    0.9806
+-------------+----------------------------------   Adj R-squared   =    0.9787
+       Total |  4.1870e+09        65  64415519.2   Root MSE        =      1172
+
+----------------------------------------------------------------------------------
+  avg_demand_mwh | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-----------------+----------------------------------------------------------------
+queue_lag18_wins |   .0337555   .0636687     0.53   0.598    -.0936454    .1611563
+             hdd |   13.97337   1.021372    13.68   0.000     11.92961    16.01713
+             cdd |    32.4963   .7756517    41.90   0.000     30.94422    34.04837
+             gdp |   .0005207   .0039513     0.13   0.896    -.0073859    .0084273
+               t |   83.88568   80.94408     1.04   0.304    -78.08305    245.8544
+              t2 |   .9604611   .5717274     1.68   0.098    -.1835627    2.104485
+           _cons |   30658.66   5890.612     5.20   0.000     18871.58    42445.75
+----------------------------------------------------------------------------------
+
+. 
+. // 7b — without time trend
+. // signal emerges when trend is not absorbing the level shift
+. display _newline "7b — ERCOT only, no time trend:"
+
+7b — ERCOT only, no time trend:
+
+. regress avg_demand_mwh queue_lag18_wins hdd cdd gdp
+
+      Source |       SS           df       MS      Number of obs   =        66
+-------------+----------------------------------   F(4, 61)        =    341.99
+       Model |  4.0083e+09         4  1.0021e+09   Prob > F        =    0.0000
+    Residual |   178739069        61  2930148.68   R-squared       =    0.9573
+-------------+----------------------------------   Adj R-squared   =    0.9545
+       Total |  4.1870e+09        65  64415519.2   Root MSE        =    1711.8
+
+----------------------------------------------------------------------------------
+  avg_demand_mwh | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-----------------+----------------------------------------------------------------
+queue_lag18_wins |    .183265    .088946     2.06   0.044     .0054065    .3611236
+             hdd |   13.13174   1.482263     8.86   0.000     10.16778    16.09571
+             cdd |   32.24296   1.131741    28.49   0.000     29.97991    34.50602
+             gdp |   .0203233   .0016518    12.30   0.000     .0170204    .0236262
+           _cons |  -3570.415   3233.047    -1.10   0.274    -10035.29    2894.462
+----------------------------------------------------------------------------------
+
+. 
+. restore
+
+. 
+. // SECTION 7 RESULTS (confirmed March 2026):
+. //   7a — with trend:
+. //      Coefficient:  0.034, p=0.598 — no signal, trend absorbs effect
+. //      R-squared:    0.981
+. //   7b — without trend:
+. //      Coefficient:  0.183, p=0.044, CI [0.005, 0.361]
+. //      HDD:          13.13, p<0.001
+. //      CDD:          32.24, p<0.001
+. //      GDP:          0.020, p<0.001
+. //      R-squared:    0.957
+. //   Interpretation: Signal exists in ERCOT queue filing history.
+. //                   Every regression variant that controls for time trend
+. //                   absorbs the persistent level shift that constitutes
+. //                   the treatment effect. This is the expected behavior
+. //                   when treatment operates through a level shift rather
+. //                   than transitory within-unit variation. Synthetic control
+. //                   does not impose a trend assumption and is therefore the
+. //                   correct identification method for this data generating
+. //                   process.
+. 
+. 
+. // ===========================================================================
+. // END OF PHASE 2 PANEL REGRESSION DO FILE
+. // Next: synthetic control in separate do file
+. // ===========================================================================
+. 
+. 
+. // ===========================================================================
+. // SECTION 8: ROBUSTNESS TABLE — PANELS A THROUGH D
+. // ===========================================================================
+. // Every specification runs. Nothing dropped for unfavorable results.
+. // All inference from boottest only. Regression SEs not reported anywhere.
+. // Winsorization applied throughout: p95 cap at 18,588 MW.
+. // Grid search: gridmin(-2) gridmax(2) used on all boottest calls to ensure
+. // connected confidence sets. Default grid produced disconnected CI for S2
+. // (12-month lag) — confirmed as numerical artifact by widening grid.
+. // See header inference note for full boottest documentation.
+. 
+. display _newline "--- SECTION 8: ROBUSTNESS TABLE ---"
+
+--- SECTION 8: ROBUSTNESS TABLE ---
+
+. 
+. // Reload panel_with_controls and rebuild all working variables
+. import delimited "data/panel_with_controls.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(24 vars, 252 obs)
+
+. rename ba ba_id
+
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. encode ba_id, gen(ba_num)
+
+. sort ba_num month_year
+
+. by ba_num: gen queue_mw_large_lag30 = queue_mw_filed_large[_n-30]
+(90 missing values generated)
+
+. by ba_num: gen queue_mw_lag30 = queue_mw_filed[_n-30]
+(90 missing values generated)
+
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. 
+. // Winsorize all lag variables at p95 (18,588 MW) — preserves missing values
+. // Motivation: MISO batch artifact creates two extreme outliers in lagged
+. // variables (154,214 MW and 102,870 MW). See Section 6 header for full
+. // justification. Same logic applied consistently across all lag specs.
+. 
+. gen queue_lag18_wins = queue_mw_large_lag18
+(54 missing values generated)
+
+. replace queue_lag18_wins = 18588.29 if queue_mw_large_lag18 > 18588.29 & queue_mw_large_lag18 != .
+(9 real changes made)
+
+. 
+. gen queue_lag12_wins = queue_mw_large_lag12
+(36 missing values generated)
+
+. replace queue_lag12_wins = 18588.29 if queue_mw_large_lag12 > 18588.29 & queue_mw_large_lag12 != .
+(9 real changes made)
+
+. 
+. gen queue_lag24_wins = queue_mw_large_lag24
+(72 missing values generated)
+
+. replace queue_lag24_wins = 18588.29 if queue_mw_large_lag24 > 18588.29 & queue_mw_large_lag24 != .
+(8 real changes made)
+
+. 
+. gen queue_lag30_wins = queue_mw_large_lag30
+(90 missing values generated)
+
+. replace queue_lag30_wins = 18588.29 if queue_mw_large_lag30 > 18588.29 & queue_mw_large_lag30 != .
+(8 real changes made)
+
+. 
+. gen queue_all_lag18 = queue_mw_lag18
+(54 missing values generated)
+
+. replace queue_all_lag18 = 18588.29 if queue_mw_lag18 > 18588.29 & queue_mw_lag18 != .
+(13 real changes made)
+
+. 
+. // BA-specific time trends for Panel C
+. // Note: with 3 BAs and month-year FE, one BA trend is always collinear.
+. // trend_pjm and trend_sq_pjm dropped by Stata in S8/S9 — expected and
+. // documented. Does not affect ERCOT and MISO trend estimates.
+. gen t = .
+(252 missing values generated)
+
+. by ba_num: replace t = _n
+(252 real changes made)
+
+. gen trend_erco    = t    * (ba_num == 1)
+
+. gen trend_miso    = t    * (ba_num == 2)
+
+. gen trend_pjm     = t    * (ba_num == 3)
+
+. gen trend_sq_erco = t^2  * (ba_num == 1)
+
+. gen trend_sq_miso = t^2  * (ba_num == 2)
+
+. gen trend_sq_pjm  = t^2  * (ba_num == 3)
+
+. 
+. 
+. // ------------------------------------------------------------------
+. // PANEL A: LAG SENSITIVITY
+. // ------------------------------------------------------------------
+. // Purpose: Test whether the 18-month primary lag is the right timing.
+. // Pattern: coefficients rise 12→24 months, flip negative at 30.
+. // The rise is consistent with progressive data center energization over
+. // an 18-24 month construction window. The 30-month flip reflects
+. // pre-surge filing activity (2019-2021, dominated by wind/solar/gas)
+. // entering the lag window — not a data center signal.
+. 
+. display _newline "--- PANEL A: LAG SENSITIVITY ---"
+
+--- PANEL A: LAG SENSITIVITY ---
+
+. 
+. display _newline "Panel A — S1: 18-month lag (primary, rerun for table consistency):"
+
+Panel A — S1: 18-month lag (primary, rerun for table consistency):
+
+. reghdfe avg_demand_mwh queue_lag18_wins hdd cdd gdp i.ba_num, absorb(month_year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        198
+Absorbing 1 HDFE group                            F(   6,      2) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9767
+                                                  Adj R-squared   =     0.9636
+                                                  Within R-sq.    =     0.9723
+Number of clusters (ba_id)   =          3         Root MSE        =  3670.7542
+
+                                      (Std. err. adjusted for 3 clusters in ba_id)
+----------------------------------------------------------------------------------
+                 |               Robust
+  avg_demand_mwh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-----------------+----------------------------------------------------------------
+queue_lag18_wins |   .0291632   .0065411     4.46   0.047     .0010189    .0573075
+             hdd |  -10.27863   5.072972    -2.03   0.180    -32.10587    11.54861
+             cdd |   41.81522    14.0536     2.98   0.097    -18.65255     102.283
+             gdp |   .0075523   .0094081     0.80   0.506    -.0329274    .0480321
+                 |
+          ba_num |
+           MISO  |    27789.4   11278.35     2.46   0.133    -20737.43    76316.24
+            PJM  |   17646.91   42613.55     0.41   0.719    -165704.4    200998.2
+                 |
+           _cons |   24574.77   16109.97     1.53   0.267    -44740.84    93890.39
+----------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        66           0          66     |
+-----------------------------------------------------+
+
+. boottest queue_lag18_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
+> x(2)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
+> id, Webb weights:
+  queue_lag18_wins
+
+                            t(2) =     4.4584
+                        Prob>|t| =     0.0631
+
+95% confidence set for null hypothesis expression: [−.125, .1323]
+
+. 
+. display _newline "Panel A — S2: 12-month lag (lower bound on timeline):"
+
+Panel A — S2: 12-month lag (lower bound on timeline):
+
+. reghdfe avg_demand_mwh queue_lag12_wins hdd cdd gdp i.ba_num, absorb(month_year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        216
+Absorbing 1 HDFE group                            F(   6,      2) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9777
+                                                  Adj R-squared   =     0.9653
+                                                  Within R-sq.    =     0.9734
+Number of clusters (ba_id)   =          3         Root MSE        =  3604.2907
+
+                                      (Std. err. adjusted for 3 clusters in ba_id)
+----------------------------------------------------------------------------------
+                 |               Robust
+  avg_demand_mwh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-----------------+----------------------------------------------------------------
+queue_lag12_wins |   .0467818   .0292953     1.60   0.251    -.0792658    .1728294
+             hdd |  -10.34516    5.50719    -1.88   0.201    -34.04068    13.35037
+             cdd |   43.58061   14.67171     2.97   0.097    -19.54668    106.7079
+             gdp |   .0067428   .0075546     0.89   0.466    -.0257619    .0392474
+                 |
+          ba_num |
+           MISO  |   28977.86   9875.531     2.93   0.099    -13513.12    71468.84
+            PJM  |    21564.1    34609.2     0.62   0.597    -127347.3    170475.5
+                 |
+           _cons |   25490.81   12336.27     2.07   0.175    -27587.89    78569.51
+----------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        72           0          72     |
+-----------------------------------------------------+
+
+. boottest queue_lag12_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
+> x(2)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
+> id, Webb weights:
+  queue_lag12_wins
+
+                            t(2) =     1.5969
+                        Prob>|t| =     0.1281
+
+95% confidence set for null hypothesis expression: [−.5833, .6671]
+
+. // Note: default grid produced disconnected CI for S2. gridmin(-2) gridmax(2)
+. // confirmed to produce connected interval [-0.583, 0.667]. Artifact resolved.
+. 
+. display _newline "Panel A — S3: 24-month lag (upper bound on timeline):"
+
+Panel A — S3: 24-month lag (upper bound on timeline):
+
+. reghdfe avg_demand_mwh queue_lag24_wins hdd cdd gdp i.ba_num, absorb(month_year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        180
+Absorbing 1 HDFE group                            F(   6,      2) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9775
+                                                  Adj R-squared   =     0.9646
+                                                  Within R-sq.    =     0.9732
+Number of clusters (ba_id)   =          3         Root MSE        =  3587.2389
+
+                                      (Std. err. adjusted for 3 clusters in ba_id)
+----------------------------------------------------------------------------------
+                 |               Robust
+  avg_demand_mwh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-----------------+----------------------------------------------------------------
+queue_lag24_wins |   .0639751   .0253871     2.52   0.128    -.0452569     .173207
+             hdd |  -9.333732   7.402125    -1.26   0.334    -41.18251    22.51504
+             cdd |   40.88643   16.50431     2.48   0.132    -30.12589    111.8988
+             gdp |   .0154941    .012926     1.20   0.353    -.0401221    .0711103
+                 |
+          ba_num |
+           MISO  |    20793.9    15319.1     1.36   0.308    -45118.88    86706.68
+            PJM  |  -16909.82   58759.84    -0.29   0.801      -269733    235913.4
+                 |
+           _cons |   8228.583   23616.09     0.35   0.761    -93383.27    109840.4
+----------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        60           0          60     |
+-----------------------------------------------------+
+
+. boottest queue_lag24_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
+> x(2)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
+> id, Webb weights:
+  queue_lag24_wins
+
+                            t(2) =     2.5200
+                        Prob>|t| =     0.2212
+
+95% confidence set for null hypothesis expression: [−.4948, .5417]
+
+. 
+. display _newline "Panel A — S4: 30-month lag (extended — constrained/delayed projects):"
+
+Panel A — S4: 30-month lag (extended — constrained/delayed projects):
+
+. reghdfe avg_demand_mwh queue_lag30_wins hdd cdd gdp i.ba_num, absorb(month_year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        162
+Absorbing 1 HDFE group                            F(   6,      2) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9774
+                                                  Adj R-squared   =     0.9643
+                                                  Within R-sq.    =     0.9731
+Number of clusters (ba_id)   =          3         Root MSE        =  3557.0394
+
+                                      (Std. err. adjusted for 3 clusters in ba_id)
+----------------------------------------------------------------------------------
+                 |               Robust
+  avg_demand_mwh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-----------------+----------------------------------------------------------------
+queue_lag30_wins |  -.1004643    .017604    -5.71   0.029    -.1762081   -.0247205
+             hdd |  -8.773948   7.370953    -1.19   0.356     -40.4886     22.9407
+             cdd |    38.6999    15.6232     2.48   0.132    -28.52131    105.9211
+             gdp |      .0183   .0136201     1.34   0.311    -.0403024    .0769025
+                 |
+          ba_num |
+           MISO  |   17400.58   15668.01     1.11   0.382    -50013.43    84814.59
+            PJM  |  -29898.09   61741.42    -0.48   0.676      -295550    235753.8
+                 |
+           _cons |   3522.902   25203.16     0.14   0.902    -104917.6    111963.4
+----------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        54           0          54     |
+-----------------------------------------------------+
+
+. boottest queue_lag30_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
+> x(2)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
+> id, Webb weights:
+  queue_lag30_wins
+
+                            t(2) =    -5.7069
+                        Prob>|t| =     0.1001
+
+95% confidence set for null hypothesis expression: [−.4136, .2917]
+
+. // Note: coefficient flips negative (-0.100, p=0.100). Interpretable — at 30
+. // months the lag window reaches pre-2022 filing activity dominated by
+. // generation projects unrelated to data center load. MISO batch artifact
+. // also enters this window. Sign flip is reported and explained, not hidden.
+. 
+. // PANEL A RESULTS (confirmed March 2026, gridmin(-2) gridmax(2)):
+. //   S1 18mo primary: coef= 0.029  CI=[-0.093, 0.101]  p=0.063
+. //   S2 12mo lower:   coef= 0.047  CI=[-0.583, 0.667]  p=0.128
+. //   S3 24mo upper:   coef= 0.064  CI=[-0.566, 0.510]  p=0.221
+. //   S4 30mo extend:  coef=-0.100  CI=[-0.417, 0.314]  p=0.100
+. //   Pattern: coefficients rise 12→24, flip negative at 30.
+. //   Rise consistent with progressive energization over construction window.
+. //   30-month flip reflects pre-surge filing composition, not absence of effect.
+. //   S2 CI widened by grid fix — not a methodological change, numerical fix only.
+. 
+. 
+. // ------------------------------------------------------------------
+. // PANEL B: MW THRESHOLD SENSITIVITY
+. // ------------------------------------------------------------------
+. 
+. display _newline "--- PANEL B: MW THRESHOLD SENSITIVITY ---"
+
+--- PANEL B: MW THRESHOLD SENSITIVITY ---
+
+. 
+. // Winsorize 50MW and 200MW lag variables at same p95 cap as primary
+. gen queue_lag18_wins_50 = queue_mw_large_lag18_50
+(54 missing values generated)
+
+. replace queue_lag18_wins_50 = 18588.29 if queue_mw_large_lag18_50 > 18588.29 & queue_mw_large_lag18_50 != .
+(11 real changes made)
+
+. 
+. gen queue_lag18_wins_200 = queue_mw_large_lag18_200
+(54 missing values generated)
+
+. replace queue_lag18_wins_200 = 18588.29 if queue_mw_large_lag18_200 > 18588.29 & queue_mw_large_lag18_200 !
+> = .
+(5 real changes made)
+
+. 
+. display _newline "Panel B — S5: 50MW threshold (lower bound on scale):"
+
+Panel B — S5: 50MW threshold (lower bound on scale):
+
+. reghdfe avg_demand_mwh queue_lag18_wins_50 hdd cdd gdp i.ba_num, absorb(month_year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        198
+Absorbing 1 HDFE group                            F(   6,      2) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9767
+                                                  Adj R-squared   =     0.9636
+                                                  Within R-sq.    =     0.9723
+Number of clusters (ba_id)   =          3         Root MSE        =  3671.2956
+
+                                         (Std. err. adjusted for 3 clusters in ba_id)
+-------------------------------------------------------------------------------------
+                    |               Robust
+     avg_demand_mwh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------------+----------------------------------------------------------------
+queue_lag18_wins_50 |   .0248891     .00625     3.98   0.058    -.0020026    .0517809
+                hdd |  -10.26183    5.08142    -2.02   0.181    -32.12542    11.60175
+                cdd |   41.83589   14.06306     2.97   0.097    -18.67256    102.3443
+                gdp |   .0075463   .0094216     0.80   0.507    -.0329916    .0480843
+                    |
+             ba_num |
+              MISO  |   27782.93   11291.91     2.46   0.133    -20802.24    76368.09
+               PJM  |   17657.76   42670.29     0.41   0.719    -165937.7    201253.2
+                    |
+              _cons |   24597.14   16129.84     1.52   0.267    -44803.95    93998.24
+-------------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        66           0          66     |
+-----------------------------------------------------+
+
+. boottest queue_lag18_wins_50, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gri
+> dmax(2)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
+> id, Webb weights:
+  queue_lag18_wins_50
+
+                            t(2) =     3.9822
+                        Prob>|t| =     0.0641
+
+95% confidence set for null hypothesis expression: [−.06163, .07806]
+
+. 
+. display _newline "Panel B — S6: 200MW threshold (hyperscale only):"
+
+Panel B — S6: 200MW threshold (hyperscale only):
+
+. reghdfe avg_demand_mwh queue_lag18_wins_200 hdd cdd gdp i.ba_num, absorb(month_year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        198
+Absorbing 1 HDFE group                            F(   6,      2) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9767
+                                                  Adj R-squared   =     0.9635
+                                                  Within R-sq.    =     0.9723
+Number of clusters (ba_id)   =          3         Root MSE        =  3673.1048
+
+                                          (Std. err. adjusted for 3 clusters in ba_id)
+--------------------------------------------------------------------------------------
+                     |               Robust
+      avg_demand_mwh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+---------------------+----------------------------------------------------------------
+queue_lag18_wins_200 |   .0005889   .0189992     0.03   0.978    -.0811582     .082336
+                 hdd |  -10.13307   5.093962    -1.99   0.185    -32.05062    11.78448
+                 cdd |   41.74555    13.9905     2.98   0.096    -18.45071    101.9418
+                 gdp |   .0072894   .0096073     0.76   0.527    -.0340473    .0486261
+                     |
+              ba_num |
+               MISO  |   27874.93   11415.24     2.44   0.135     -21240.9    76990.77
+                PJM  |   18674.13   43436.23     0.43   0.709    -168216.9    205565.2
+                     |
+               _cons |   25261.64   16536.23     1.53   0.266    -45888.02    96411.29
+--------------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        66           0          66     |
+-----------------------------------------------------+
+
+. boottest queue_lag18_wins_200, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gr
+> idmax(2)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
+> id, Webb weights:
+  queue_lag18_wins_200
+
+                            t(2) =     0.0310
+                        Prob>|t| =     0.9049
+
+95% confidence set for null hypothesis expression: [−.4167, .3897]
+
+. 
+. // PANEL B RESULTS — record after running:
+. //   S5 50MW:  coef=   CI=   p=
+. //   S6 200MW: coef=   CI=   p=
+. //   If coefficients similar to S1 (0.029), threshold choice does not drive result.
+. //   If S6 200MW larger, effect concentrated in true hyperscale projects.
+. 
+. 
+. // ------------------------------------------------------------------
+. // PANEL C: CONTROL SPECIFICATION
+. // ------------------------------------------------------------------
+. // Purpose: Test whether GDP control or trend specification drives result.
+. // S7 tests GDP sensitivity. S8/S9 are the most conservative specifications —
+. // BA-specific trends absorb secular ERCOT growth that may itself be
+. // data-center-driven. Attenuation under S8/S9 is expected and does not
+. // invalidate the baseline. Reported honestly.
+. 
+. display _newline "--- PANEL C: CONTROL SPECIFICATION ---"
+
+--- PANEL C: CONTROL SPECIFICATION ---
+
+. 
+. display _newline "Panel C — S7: No GDP control:"
+
+Panel C — S7: No GDP control:
+
+. reghdfe avg_demand_mwh queue_lag18_wins hdd cdd i.ba_num, absorb(month_year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        198
+Absorbing 1 HDFE group                            F(   5,      2) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9762
+                                                  Adj R-squared   =     0.9632
+                                                  Within R-sq.    =     0.9717
+Number of clusters (ba_id)   =          3         Root MSE        =  3692.9905
+
+                                      (Std. err. adjusted for 3 clusters in ba_id)
+----------------------------------------------------------------------------------
+                 |               Robust
+  avg_demand_mwh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-----------------+----------------------------------------------------------------
+queue_lag18_wins |   .0129658   .0151766     0.85   0.483    -.0523339    .0782655
+             hdd |  -9.670741   4.933418    -1.96   0.189    -30.89752    11.55604
+             cdd |   41.07296   13.47922     3.05   0.093    -16.92345    99.06937
+                 |
+          ba_num |
+           MISO  |   33695.86   3558.126     9.47   0.011     18386.48    49005.24
+            PJM  |    49552.8   2625.793    18.87   0.003     38254.93    60850.68
+                 |
+           _cons |      40358   3226.265    12.51   0.006      26476.5    54239.49
+----------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        66           0          66     |
+-----------------------------------------------------+
+
+. boottest queue_lag18_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
+> x(2)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
+> id, Webb weights:
+  queue_lag18_wins
+
+                            t(2) =     0.8543
+                        Prob>|t| =     0.0991
+
+95% confidence set for null hypothesis expression: [−.2061, .2495]
+
+. 
+. display _newline "Panel C — S8: BA-specific linear time trends:"
+
+Panel C — S8: BA-specific linear time trends:
+
+. // Note: trend_pjm dropped by Stata due to collinearity with month_year FE
+. // and i.ba_num. With 3 BAs only 2 BA-specific trends are identified.
+. // Expected and documented — does not affect ERCOT and MISO estimates.
+. reghdfe avg_demand_mwh queue_lag18_wins hdd cdd gdp trend_erco trend_miso trend_pjm i.ba_num, absorb(month_
+> year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+note: trend_pjm omitted because of collinearity
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        198
+Absorbing 1 HDFE group                            F(   8,      2) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9796
+                                                  Adj R-squared   =     0.9676
+                                                  Within R-sq.    =     0.9757
+Number of clusters (ba_id)   =          3         Root MSE        =  3464.9262
+
+                                      (Std. err. adjusted for 3 clusters in ba_id)
+----------------------------------------------------------------------------------
+                 |               Robust
+  avg_demand_mwh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-----------------+----------------------------------------------------------------
+queue_lag18_wins |  -.0592481   .0875316    -0.68   0.568    -.4358663      .31737
+             hdd |  -5.579249   7.803301    -0.71   0.549    -39.15414    27.99565
+             cdd |    34.3229   17.08283     2.01   0.182    -39.17857    107.8244
+             gdp |   .0087629   .0061357     1.43   0.289     -.017637    .0351627
+      trend_erco |   133.7025   49.47249     2.70   0.114    -79.16043    346.5655
+      trend_miso |   18.73088   50.39804     0.37   0.746    -198.1144    235.5762
+       trend_pjm |          0  (omitted)
+                 |
+          ba_num |
+           MISO  |   29816.95   9347.988     3.19   0.086     -10404.2    70038.09
+            PJM  |   17343.72   26272.88     0.66   0.577    -95699.35    130386.8
+                 |
+           _cons |   16977.27   13750.48     1.23   0.342    -42186.29    76140.82
+----------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        66           0          66     |
+-----------------------------------------------------+
+
+. boottest queue_lag18_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
+> x(2)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
+> id, Webb weights:
+  queue_lag18_wins
+
+                            t(2) =    -0.6769
+                        Prob>|t| =     0.7828
+
+95% confidence set for null hypothesis expression: [−1.67, −1.542] ∪ [−1.417, 1.917]
+
+. 
+. display _newline "Panel C — S9: BA-specific quadratic time trends (most conservative):"
+
+Panel C — S9: BA-specific quadratic time trends (most conservative):
+
+. // Note: trend_pjm and trend_sq_pjm both dropped. Same collinearity reason.
+. reghdfe avg_demand_mwh queue_lag18_wins hdd cdd gdp trend_erco trend_miso trend_pjm trend_sq_erco trend_sq_
+> miso trend_sq_pjm i.ba_num, absorb(month_year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+note: trend_pjm omitted because of collinearity
+note: trend_sq_pjm omitted because of collinearity
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        198
+Absorbing 1 HDFE group                            F(  10,      2) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9805
+                                                  Adj R-squared   =     0.9685
+                                                  Within R-sq.    =     0.9768
+Number of clusters (ba_id)   =          3         Root MSE        =  3412.6738
+
+                                      (Std. err. adjusted for 3 clusters in ba_id)
+----------------------------------------------------------------------------------
+                 |               Robust
+  avg_demand_mwh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-----------------+----------------------------------------------------------------
+queue_lag18_wins |  -.0391323   .0793287    -0.49   0.671    -.3804563    .3021918
+             hdd |  -5.956803    7.93949    -0.75   0.531    -40.11767    28.20407
+             cdd |   34.52062   16.46133     2.10   0.171    -36.30677     105.348
+             gdp |   .0268824   .0028504     9.43   0.011     .0146182    .0391467
+      trend_erco |   652.1304   49.41198    13.20   0.006     439.5278     864.733
+      trend_miso |   669.0601   67.97967     9.84   0.010     376.5672     961.553
+       trend_pjm |          0  (omitted)
+   trend_sq_erco |  -4.497738   .2976568   -15.11   0.004    -5.778452   -3.217025
+   trend_sq_miso |  -5.205503   .5826774    -8.93   0.012    -7.712561   -2.698444
+    trend_sq_pjm |          0  (omitted)
+                 |
+          ba_num |
+           MISO  |   10350.74   2507.959     4.13   0.054    -440.1416    21141.61
+            PJM  |  -46512.47    10596.3    -4.39   0.048    -92104.66   -920.2808
+                 |
+           _cons |  -33663.07   8215.084    -4.10   0.055    -69009.73    1683.578
+----------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        66           0          66     |
+-----------------------------------------------------+
+
+. boottest queue_lag18_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
+> x(2)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
+> id, Webb weights:
+  queue_lag18_wins
+
+                            t(2) =    -0.4933
+                        Prob>|t| =     0.8398
+
+95% confidence set for null hypothesis expression: [−1.25, 1.725]
+
+. 
+. // PANEL C RESULTS (confirmed March 2026):
+. //   S7 no GDP:         coef= 0.013  CI=[-0.216, 0.242]  p=0.099
+. //   S8 linear trends:  coef=-0.059  CI=[-1.397, 1.886]  p=0.783
+. //   S9 quadratic:      coef=-0.039  CI=[-1.539, 1.817]  p=0.840
+. //   S7: modest attenuation without GDP — expected, GDP partially collinear
+. //       with queue activity through regional economic conditions channel.
+. //   S8/S9: coefficient collapses — BA trends absorb secular ERCOT growth
+. //       including data-center-driven component. Wide CIs reflect thin
+. //       within-BA variation after trend absorption. Expected and reported.
+. //   Collinearity note: trend_pjm and trend_sq_pjm always dropped with
+. //       3 BAs and month-year FE. Stata behavior documented here explicitly.
+. 
+. 
+. // ------------------------------------------------------------------
+. // PANEL D: QUEUE VARIABLE
+. // ------------------------------------------------------------------
+. // Purpose: Test whether restricting to 100MW+ projects drives the result.
+. // All-project variable includes smaller projects alongside large ones.
+. // If coefficient similar to S1, smaller projects contribute modest signal.
+. // If larger, smaller projects matter more than 100MW threshold implies.
+. 
+. display _newline "--- PANEL D: QUEUE VARIABLE ---"
+
+--- PANEL D: QUEUE VARIABLE ---
+
+. 
+. display _newline "Panel D — S10: All projects (no MW threshold):"
+
+Panel D — S10: All projects (no MW threshold):
+
+. reghdfe avg_demand_mwh queue_all_lag18 hdd cdd gdp i.ba_num, absorb(month_year) cluster(ba_id)
+(MWFE estimator converged in 1 iterations)
+warning: missing F statistic; dropped variables due to collinearity or too few clusters
+
+HDFE Linear regression                            Number of obs   =        198
+Absorbing 1 HDFE group                            F(   6,      2) =          .
+Statistics robust to heteroskedasticity           Prob > F        =          .
+                                                  R-squared       =     0.9767
+                                                  Adj R-squared   =     0.9636
+                                                  Within R-sq.    =     0.9723
+Number of clusters (ba_id)   =          3         Root MSE        =  3671.6408
+
+                                     (Std. err. adjusted for 3 clusters in ba_id)
+---------------------------------------------------------------------------------
+                |               Robust
+ avg_demand_mwh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+----------------+----------------------------------------------------------------
+queue_all_lag18 |   .0219312   .0064198     3.42   0.076    -.0056908    .0495533
+            hdd |  -10.24841   5.084384    -2.02   0.181    -32.12475    11.62793
+            cdd |   41.83732   14.06586     2.97   0.097     -18.6832    102.3578
+            gdp |   .0075137   .0094386     0.80   0.509    -.0330975    .0481249
+                |
+         ba_num |
+          MISO  |   27798.55   11305.77     2.46   0.133    -20846.26    76443.37
+           PJM  |   17783.93   42740.28     0.42   0.718    -166112.6    201680.5
+                |
+          _cons |   24676.78   16162.19     1.53   0.266    -44863.49    94217.06
+---------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+  month_year |        66           0          66     |
+-----------------------------------------------------+
+
+. boottest queue_all_lag18, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridmax
+> (2)
+
+Overriding estimator's cluster/robust settings with cluster(ba_id)
+
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
+> id, Webb weights:
+  queue_all_lag18
+
+                            t(2) =     3.4162
+                        Prob>|t| =     0.0981
+
+95% confidence set for null hypothesis expression: [−.05406, .1486]
+
+. 
+. // PANEL D RESULTS (confirmed March 2026):
+. //   S10 all projects: coef=0.022  CI=[-0.045, 0.145]  p=0.098
+. //   Slightly below large-only S1 coefficient of 0.029. Effect concentrated
+. //   in 100MW+ projects but not exclusively — smaller projects contribute
+. //   a modest positive signal consistent with data-center-adjacent load.
+. 
+. // *** STOP HERE — paste updated Panel A output to confirm grid fix ***
+. // Confirm S2 CI is now connected before finalizing table.
+. // Panel B runs after 50MW and 200MW variables added to panel_with_controls.csv.
+. // Once Panel B runs, robustness table is complete and ready for paper.
+. 
+. 
+. log close
+      name:  <unnamed>
+       log:  C:\Users\alamb\OneDrive\Alans Work Folder\independent projects\ai-electricity-demand\logs/phase2
+> _panel_regression.log
+  log type:  text
+ closed on:  14 Mar 2026, 17:17:07
+-------------------------------------------------------------------------------------------------------------

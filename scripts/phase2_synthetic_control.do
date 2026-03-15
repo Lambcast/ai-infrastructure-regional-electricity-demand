@@ -269,3 +269,476 @@ drop demand_2019
 // Next step: confirm which additional BAs are available in
 // eia_demand_2018_2025.csv and classify low-exposure BAs
 // from LBL queue data before proceeding to SC-2.
+
+
+// ===========================================================================
+// SECTION 4: SC-2 — EXPANDED DONOR POOL
+// ===========================================================================
+// Donor pool: ISNE, MISO, NYIS, PJM, SWPP (ba_num 2,3,4,5,6)
+// Adds low-exposure BAs to the donor pool alongside PJM and MISO.
+// If gap estimate rises above SC-1, expanded pool is doing real work.
+// Pre-treatment RMSPE should improve with more donors.
+
+display _newline "--- SECTION 4: SC-2 EXPANDED DONOR POOL ---"
+
+import delimited "data/panel_expanded.csv", clear
+rename ba ba_id
+gen month_year = monthly(year_month, "YM")
+format month_year %tm
+encode ba_id, gen(ba_num)
+xtset ba_num month_year
+
+// Index demand — 2019 average = 100 for each BA
+bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+bysort ba_num: egen demand_base = mean(demand_2019)
+gen demand_idx = (avg_demand_mwh / demand_base) * 100
+drop demand_2019
+
+synth demand_idx ///
+    demand_idx(708) demand_idx(720) demand_idx(732) ///
+    demand_idx(744) demand_idx(756) ///
+    hdd cdd gdp, ///
+    trunit(1) trperiod(760) ///
+    keep(results/sc2_idx_results.dta) replace
+
+matrix list e(W_weights)
+matrix list e(X_balance)
+
+// Compute and plot gap
+use results/sc2_idx_results.dta, clear
+gen gap = _Y_treated - _Y_synthetic
+
+summarize gap if _time >= 760
+summarize gap if _time < 760
+
+twoway line gap _time, lcolor(black) lwidth(medium) ///
+    xline(760, lcolor(red) lpattern(dot)) ///
+    yline(0, lcolor(gray) lpattern(dash)) ///
+    xlabel(708(12)791, angle(45) format(%tmMon_CCYY)) ///
+    ylabel(-30(10)50, format(%9.0f)) ///
+    title("SC-2: ERCOT Demand Gap vs Synthetic ERCOT") ///
+    ytitle("Gap (index points, 2019=100)") ///
+    xtitle("") ///
+    note("Donor pool: ISNE, MISO, NYIS, PJM, SWPP (expanded pool).") ///
+    saving(results/sc2_gap_plot.gph, replace)
+
+// SC-2 RESULTS (confirmed March 2026):
+//   Pre-treatment RMSPE:     8.30 index points (best fit of three specs)
+//   Donor weights:           SWPP 1.0, all others 0
+//   Post-treatment mean gap: 15.4 index points
+//   Pre-treatment mean gap:  3.1 index points
+//   Note: Optimizer selected SWPP exclusively — best pre-treatment match.
+//         SWPP's own post-treatment demand growth compresses gap estimate.
+//         Lower gap reflects donor trajectory, not absence of ERCOT effect.
+
+
+// ===========================================================================
+// SECTION 5: SC-3 — LOW-EXPOSURE DONOR POOL ONLY
+// ===========================================================================
+// Donor pool: ISNE(2), NYIS(4), SWPP(6) only — PJM and MISO excluded.
+// Cleanest donor pool — removes contaminated units entirely.
+// If SC-3 gap > SC-1 gap, contamination lower bound story is confirmed.
+// If SC-3 ≈ SC-2, expanded pool result is stable.
+
+display _newline "--- SECTION 5: SC-3 LOW-EXPOSURE DONOR POOL ---"
+
+import delimited "data/panel_expanded.csv", clear
+rename ba ba_id
+gen month_year = monthly(year_month, "YM")
+format month_year %tm
+encode ba_id, gen(ba_num)
+
+// Drop PJM and MISO — low-exposure only
+drop if ba_num == 3 | ba_num == 5
+
+xtset ba_num month_year
+
+// Index demand
+bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+bysort ba_num: egen demand_base = mean(demand_2019)
+gen demand_idx = (avg_demand_mwh / demand_base) * 100
+drop demand_2019
+
+synth demand_idx ///
+    demand_idx(708) demand_idx(720) demand_idx(732) ///
+    demand_idx(744) demand_idx(756) ///
+    hdd cdd gdp, ///
+    trunit(1) trperiod(760) ///
+    keep(results/sc3_idx_results.dta) replace
+
+matrix list e(W_weights)
+matrix list e(X_balance)
+
+// Compute and plot gap
+use results/sc3_idx_results.dta, clear
+gen gap = _Y_treated - _Y_synthetic
+
+summarize gap if _time >= 760
+summarize gap if _time < 760
+
+twoway line gap _time, lcolor(black) lwidth(medium) ///
+    xline(760, lcolor(red) lpattern(dot)) ///
+    yline(0, lcolor(gray) lpattern(dash)) ///
+    xlabel(708(12)791, angle(45) format(%tmMon_CCYY)) ///
+    ylabel(-30(10)50, format(%9.0f)) ///
+    title("SC-3: ERCOT Demand Gap vs Synthetic ERCOT") ///
+    ytitle("Gap (index points, 2019=100)") ///
+    xtitle("") ///
+    note("Donor pool: ISNE, NYIS, SWPP only (low-exposure, cleanest estimate).") ///
+    saving(results/sc3_gap_plot.gph, replace)
+
+
+// SC-3 RESULTS (confirmed March 2026):
+//   Pre-treatment RMSPE:     11.12 index points
+//   Donor weights:           NYIS 0.755, SWPP 0.245, ISNE 0
+//   Post-treatment mean gap: 24.5 index points  ← PRIMARY SC ESTIMATE
+//   Pre-treatment mean gap:  5.1 index points
+//   Note: Cleanest donor pool. Gap above SC-1 confirms contamination
+//         lower bound story. ISNE receives zero weight — climate
+//         mismatch prevents meaningful contribution to ERCOT match.
+
+
+// ===========================================================================
+// SECTION 5b: SC-3 CALENDAR DATE ROBUSTNESS — TREATMENT AT 2022m1
+// ===========================================================================
+// Purpose: Confirm Bai-Perron date of 2023m5 is not arbitrary.
+// Method: Rerun SC-3 with treatment at 2022m1 (744) — the alternative
+//         calendar date referenced in the methodology doc.
+// Expected: Smaller gap than primary because 2022-2023 ramp-up period
+//           is absorbed into the post-treatment window.
+// File saved separately to avoid overwriting primary SC-3 results.
+
+display _newline "--- SECTION 5b: CALENDAR DATE ROBUSTNESS 2022m1 ---"
+
+// Reload SC-3 panel — same setup as Section 5
+import delimited "data/panel_expanded.csv", clear
+rename ba ba_id
+gen month_year = monthly(year_month, "YM")
+format month_year %tm
+encode ba_id, gen(ba_num)
+drop if ba_num == 3 | ba_num == 5
+xtset ba_num month_year
+bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+bysort ba_num: egen demand_base = mean(demand_2019)
+gen demand_idx = (avg_demand_mwh / demand_base) * 100
+drop demand_2019
+
+synth demand_idx ///
+    demand_idx(708) demand_idx(720) demand_idx(732) ///
+    demand_idx(744) demand_idx(756) ///
+    hdd cdd gdp, ///
+    trunit(1) trperiod(744) ///
+    keep(results/sc3_robustness_2022m1.dta) replace
+
+matrix list e(W_weights)
+
+use results/sc3_robustness_2022m1.dta, clear
+gen gap = _Y_treated - _Y_synthetic
+
+summarize gap if _time >= 744
+summarize gap if _time < 744
+
+twoway line gap _time, lcolor(black) lwidth(medium) ///
+    xline(744, lcolor(red) lpattern(dot)) ///
+    yline(0, lcolor(gray) lpattern(dash)) ///
+    xlabel(708(12)791, angle(45) format(%tmMon_CCYY)) ///
+    ylabel(-30(10)50, format(%9.0f)) ///
+    title("SC-3 Robustness: Calendar Date 2022m1") ///
+    ytitle("Gap (index points, 2019=100)") ///
+    xtitle("") ///
+    note("Robustness check — treatment date 2022m1 (744)." ///
+         "Primary estimate uses Bai-Perron date 2023m5 (760)." ///
+         "Donor pool: ISNE, NYIS, SWPP.") ///
+    name(sc3_calendar, replace) ///
+    saving(results/sc3_robustness_2022m1_plot.gph, replace)
+
+// RESULTS (confirmed March 2026):
+//   RMSPE:               9.25
+//   Weights:             NYIS 0.796, SWPP 0.204, ISNE 0
+//   Post-treatment gap:  20.5 index points
+//   Pre-treatment gap:   2.4 index points
+//   Interpretation: Smaller gap than primary (24.5) because 2022-2023
+//   ramp-up period is included in post-treatment window, diluting the
+//   divergence estimate. Confirms Bai-Perron date of 2023m5 better
+//   isolates the post-divergence period. Coherent with lower bound story.
+
+// *** STOP HERE ***
+// Compare SC-1, SC-2, SC-3 gap estimates before proceeding to placebos.
+// If SC-1 < SC-2 ≈ SC-3, contamination lower bound story is confirmed.
+
+
+// ===========================================================================
+// SECTION 6: IN-TIME PLACEBO TESTS
+// ===========================================================================
+// Purpose: Test whether the 2023m5 treatment date is special.
+// Method: Rerun SC-3 as if treatment had occurred at earlier dates.
+// If placebo gaps are small relative to the true 2023m5 gap, that is
+// evidence the result is not just noise in the synthetic control method.
+//
+// Placebo dates: 2020m1 (720), 2021m1 (732), 2022m1 (744)
+// True treatment: 2023m5 (760)
+// All use SC-3 donor pool: ERCO vs ISNE, NYIS, SWPP
+
+display _newline "--- SECTION 6: IN-TIME PLACEBO TESTS ---"
+
+// Reload SC-3 panel
+import delimited "data/panel_expanded.csv", clear
+rename ba ba_id
+gen month_year = monthly(year_month, "YM")
+format month_year %tm
+encode ba_id, gen(ba_num)
+drop if ba_num == 3 | ba_num == 5
+xtset ba_num month_year
+bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+bysort ba_num: egen demand_base = mean(demand_2019)
+gen demand_idx = (avg_demand_mwh / demand_base) * 100
+drop demand_2019
+
+// Placebo 1: treatment date = 2020m1 (720)
+// Pre-treatment predictors limited to 708-719 (12 months only)
+synth demand_idx demand_idx(708) demand_idx(714) demand_idx(719) hdd cdd gdp, ///
+    trunit(1) trperiod(720) keep(results/sc3_intime_2020m1.dta) replace
+display "In-time placebo 2020m1 RMSPE:"
+matrix list e(RMSPE)
+
+// Placebo 2: treatment date = 2021m1 (732)
+synth demand_idx demand_idx(708) demand_idx(714) demand_idx(720) ///
+    demand_idx(726) demand_idx(731) hdd cdd gdp, ///
+    trunit(1) trperiod(732) keep(results/sc3_intime_2021m1.dta) replace
+display "In-time placebo 2021m1 RMSPE:"
+matrix list e(RMSPE)
+
+// Placebo 3: treatment date = 2022m1 (744)
+synth demand_idx demand_idx(708) demand_idx(714) demand_idx(720) ///
+    demand_idx(726) demand_idx(732) demand_idx(738) demand_idx(743) hdd cdd gdp, ///
+    trunit(1) trperiod(744) keep(results/sc3_intime_2022m1.dta) replace
+display "In-time placebo 2022m1 RMSPE:"
+matrix list e(RMSPE)
+
+// Build combined gap dataset for plotting
+// True treatment gap
+use results/sc3_idx_results.dta, clear
+gen gap_true = _Y_treated - _Y_synthetic
+keep _time gap_true
+save results/intime_combined.dta, replace
+
+// 2020m1 placebo gap
+use results/sc3_intime_2020m1.dta, clear
+gen gap_2020 = _Y_treated - _Y_synthetic
+keep _time gap_2020
+merge 1:1 _time using results/intime_combined.dta, nogenerate
+save results/intime_combined.dta, replace
+
+// 2021m1 placebo gap
+use results/sc3_intime_2021m1.dta, clear
+gen gap_2021 = _Y_treated - _Y_synthetic
+keep _time gap_2021
+merge 1:1 _time using results/intime_combined.dta, nogenerate
+save results/intime_combined.dta, replace
+
+// 2022m1 placebo gap
+use results/sc3_intime_2022m1.dta, clear
+gen gap_2022 = _Y_treated - _Y_synthetic
+keep _time gap_2022
+merge 1:1 _time using results/intime_combined.dta, nogenerate
+save results/intime_combined.dta, replace
+
+// Plot all four gap series on same figure
+// True treatment in black, placebos in gray
+use results/intime_combined.dta, clear
+
+twoway ///
+    (line gap_2020 _time, lcolor(gs10) lwidth(thin) lpattern(dash)) ///
+    (line gap_2021 _time, lcolor(gs10) lwidth(thin) lpattern(dash)) ///
+    (line gap_2022 _time, lcolor(gs10) lwidth(thin) lpattern(dash)) ///
+    (line gap_true _time, lcolor(black) lwidth(medthick)) ///
+    , xline(760, lcolor(red) lpattern(dot)) ///
+    yline(0, lcolor(gray) lpattern(dash)) ///
+    xlabel(708(12)791, angle(45) format(%tmMon_CCYY)) ///
+    ylabel(-30(10)50, format(%9.0f)) ///
+    legend(order(4 "True treatment (2023m5)" ///
+                 1 "Placebo 2020m1" 2 "Placebo 2021m1" 3 "Placebo 2022m1") ///
+           position(11) ring(0) cols(1)) ///
+    title("In-Time Placebo Tests: SC-3 Specification") ///
+    ytitle("Gap (index points, 2019=100)") ///
+    xtitle("") ///
+    note("Black = true treatment date (2023m5). Gray = placebo treatment dates." ///
+         "Donor pool: ISNE, NYIS, SWPP.") ///
+    saving(results/intime_placebo_plot.gph, replace)
+
+// *** STOP HERE — record RMSPE values and paste plot before Section 7 ***
+
+
+// ===========================================================================
+// SECTION 7: IN-SPACE PLACEBO TESTS
+// ===========================================================================
+// Purpose: Formal permutation inference for SC-3.
+// Method: Treat each donor BA as if it were the treated unit.
+//         Construct synthetic version from remaining units.
+//         Compare post-treatment gap to ERCOT's gap.
+// P-value = fraction of placebos with gap >= ERCOT's gap.
+// RMSPE filter: exclude placebos where pre-treatment RMSPE > 2x ERCOT's.
+// ERCOT SC-3 RMSPE = 11.12 — exclude placebos above 22.24.
+// Minimum p-value with 3 donors = 1/4 = 0.25.
+
+display _newline "--- SECTION 7: IN-SPACE PLACEBO TESTS ---"
+
+// Reload SC-3 panel
+import delimited "data/panel_expanded.csv", clear
+rename ba ba_id
+gen month_year = monthly(year_month, "YM")
+format month_year %tm
+encode ba_id, gen(ba_num)
+drop if ba_num == 3 | ba_num == 5
+xtset ba_num month_year
+bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+bysort ba_num: egen demand_base = mean(demand_2019)
+gen demand_idx = (avg_demand_mwh / demand_base) * 100
+drop demand_2019
+
+// Save ERCOT gap for comparison
+use results/sc3_idx_results.dta, clear
+gen gap_erco = _Y_treated - _Y_synthetic
+keep _time gap_erco
+save results/inspace_combined.dta, replace
+
+// Placebo 1: ISNE as treated unit (ba_num=2)
+// Donors: ERCO(1), NYIS(4), SWPP(6)
+import delimited "data/panel_expanded.csv", clear
+rename ba ba_id
+gen month_year = monthly(year_month, "YM")
+format month_year %tm
+encode ba_id, gen(ba_num)
+drop if ba_num == 3 | ba_num == 5
+xtset ba_num month_year
+bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+bysort ba_num: egen demand_base = mean(demand_2019)
+gen demand_idx = (avg_demand_mwh / demand_base) * 100
+drop demand_2019
+
+synth demand_idx ///
+    demand_idx(708) demand_idx(720) demand_idx(732) ///
+    demand_idx(744) demand_idx(756) ///
+    hdd cdd gdp, ///
+    trunit(2) trperiod(760) keep(results/sc3_placebo_isne.dta) replace
+
+display "ISNE placebo RMSPE (threshold for exclusion = 22.24):"
+matrix list e(RMSPE)
+
+use results/sc3_placebo_isne.dta, clear
+gen gap_isne = _Y_treated - _Y_synthetic
+keep _time gap_isne
+merge 1:1 _time using results/inspace_combined.dta, nogenerate
+save results/inspace_combined.dta, replace
+
+// Placebo 2: NYIS as treated unit (ba_num=4)
+// Donors: ERCO(1), ISNE(2), SWPP(6)
+import delimited "data/panel_expanded.csv", clear
+rename ba ba_id
+gen month_year = monthly(year_month, "YM")
+format month_year %tm
+encode ba_id, gen(ba_num)
+drop if ba_num == 3 | ba_num == 5
+xtset ba_num month_year
+bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+bysort ba_num: egen demand_base = mean(demand_2019)
+gen demand_idx = (avg_demand_mwh / demand_base) * 100
+drop demand_2019
+
+synth demand_idx ///
+    demand_idx(708) demand_idx(720) demand_idx(732) ///
+    demand_idx(744) demand_idx(756) ///
+    hdd cdd gdp, ///
+    trunit(4) trperiod(760) keep(results/sc3_placebo_nyis.dta) replace
+
+display "NYIS placebo RMSPE (threshold for exclusion = 22.24):"
+matrix list e(RMSPE)
+
+use results/sc3_placebo_nyis.dta, clear
+gen gap_nyis = _Y_treated - _Y_synthetic
+keep _time gap_nyis
+merge 1:1 _time using results/inspace_combined.dta, nogenerate
+save results/inspace_combined.dta, replace
+
+// Placebo 3: SWPP as treated unit (ba_num=6)
+// Donors: ERCO(1), ISNE(2), NYIS(4)
+import delimited "data/panel_expanded.csv", clear
+rename ba ba_id
+gen month_year = monthly(year_month, "YM")
+format month_year %tm
+encode ba_id, gen(ba_num)
+drop if ba_num == 3 | ba_num == 5
+xtset ba_num month_year
+bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+bysort ba_num: egen demand_base = mean(demand_2019)
+gen demand_idx = (avg_demand_mwh / demand_base) * 100
+drop demand_2019
+
+synth demand_idx ///
+    demand_idx(708) demand_idx(720) demand_idx(732) ///
+    demand_idx(744) demand_idx(756) ///
+    hdd cdd gdp, ///
+    trunit(6) trperiod(760) keep(results/sc3_placebo_swpp.dta) replace
+
+display "SWPP placebo RMSPE (threshold for exclusion = 22.24):"
+matrix list e(RMSPE)
+
+use results/sc3_placebo_swpp.dta, clear
+gen gap_swpp = _Y_treated - _Y_synthetic
+keep _time gap_swpp
+merge 1:1 _time using results/inspace_combined.dta, nogenerate
+save results/inspace_combined.dta, replace
+
+
+// ===========================================================================
+// SECTION 8: COMBINED VISUAL PRESENTATION
+// ===========================================================================
+// Plot ERCOT gap against all placebo gaps.
+// Gray lines = placebo units. Black line = ERCOT.
+// Dashed gray = placebo excluded by RMSPE filter (if any).
+// This figure is the primary inferential exhibit for the paper.
+// P-value computed below after examining RMSPE filter results.
+
+display _newline "--- SECTION 8: IN-SPACE PLACEBO FIGURE ---"
+
+use results/inspace_combined.dta, clear
+
+// Note: update lpattern for excluded placebos after checking RMSPE values
+// If placebo RMSPE > 22.24, change its line to lpattern(shortdash) and
+// add to figure note that it was excluded from p-value computation.
+
+twoway ///
+    (line gap_isne _time, lcolor(gs12) lwidth(thin)) ///
+    (line gap_nyis _time, lcolor(gs12) lwidth(thin)) ///
+    (line gap_swpp _time, lcolor(gs12) lwidth(thin)) ///
+    (line gap_erco _time, lcolor(black) lwidth(medthick)) ///
+    , xline(760, lcolor(red) lpattern(dot)) ///
+    yline(0, lcolor(gray) lpattern(dash)) ///
+    xlabel(708(12)791, angle(45) format(%tmMon_CCYY)) ///
+    ylabel(-50(10)60, format(%9.0f)) ///
+    legend(order(4 "ERCOT (treated)" 1 "ISNE placebo" ///
+                 2 "NYIS placebo" 3 "SWPP placebo") ///
+           position(11) ring(0) cols(1)) ///
+    title("In-Space Placebo Tests: SC-3 Specification") ///
+    ytitle("Gap (index points, 2019=100)") ///
+    xtitle("") ///
+    note("Black = ERCOT. Gray = donor BAs treated as placebo units." ///
+         "Vertical line = treatment date (2023m5)." ///
+         "Placebos with pre-treatment RMSPE > 2x ERCOT excluded from p-value.") ///
+    saving(results/inspace_placebo_plot.gph, replace)
+
+// P-value computation — fill in after examining RMSPE values above
+// Step 1: Record post-treatment mean gap for ERCOT: 24.5 index points
+// Step 2: For each placebo NOT excluded by RMSPE filter, compute mean
+//         post-treatment gap and check whether it exceeds 24.5
+// Step 3: P-value = (number of placebos with gap >= 24.5) / (total placebos + 1)
+
+summarize gap_erco if _time >= 760
+summarize gap_isne if _time >= 760
+summarize gap_nyis if _time >= 760
+summarize gap_swpp if _time >= 760
+
+// *** STOP HERE ***
+// Paste: all four RMSPE values, all four post-treatment gap summaries,
+// and both plot windows (in-time and in-space).
+// We will compute the formal p-value and record all results together.
