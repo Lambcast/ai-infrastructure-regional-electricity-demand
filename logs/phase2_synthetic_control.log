@@ -1,0 +1,1894 @@
+------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\alamb\OneDrive\Alans Work Folder\independent projects\ai-electricity-demand\logs/phase2_synthetic_contro
+> l.log
+  log type:  text
+ opened on:  14 Mar 2026, 16:56:52
+
+. 
+. display "Session started: $S_DATE $S_TIME"
+Session started: 14 Mar 2026 16:56:52
+
+. display "Stata version: `c(stata_version)'"
+Stata version: 19
+
+. 
+. 
+. // ===========================================================================
+. // SECTION 1: PACKAGE INSTALLATION
+. // ===========================================================================
+. 
+. capture ssc install synth
+
+. 
+. 
+. // ===========================================================================
+. // SECTION 2: DATA PREPARATION
+. // ===========================================================================
+. // synth requires xtset panel data with a numeric unit identifier and
+. // numeric time variable. Same setup as panel regression do file.
+. 
+. display _newline "--- SECTION 2: DATA PREPARATION ---"
+
+--- SECTION 2: DATA PREPARATION ---
+
+. 
+. import delimited "data/panel_with_controls.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(20 vars, 252 obs)
+
+. display "Observations loaded: `=_N'"
+Observations loaded: 252
+
+. 
+. rename ba ba_id
+
+. 
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. 
+. encode ba_id, gen(ba_num)
+
+. display "BA encoding:"
+BA encoding:
+
+. label list ba_num
+ba_num:
+           1 ERCO
+           2 MISO
+           3 PJM
+
+. // Expected: 1=ERCO, 2=MISO, 3=PJM
+. 
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. // Expected: strongly balanced, 2019m1-2025m12, delta 1 month
+. 
+. // Confirm treatment date numeric value
+. display "Treatment date numeric value (2023m5):"
+Treatment date numeric value (2023m5):
+
+. display monthly("2023-5", "YM")
+760
+
+. // Expected: 760
+. 
+. // Confirm pre-treatment period
+. // Pre-treatment: 2019m1 (Stata value 708) through 2023m4 (Stata value 759)
+. // Post-treatment: 2023m5 (760) through 2025m12 (791)
+. display "Pre-treatment start (2019m1):"
+Pre-treatment start (2019m1):
+
+. display monthly("2019-1", "YM")
+708
+
+. display "Pre-treatment end (2023m4):"
+Pre-treatment end (2023m4):
+
+. display monthly("2023-4", "YM")
+759
+
+. display "Post-treatment end (2025m12):"
+Post-treatment end (2025m12):
+
+. display monthly("2025-12", "YM")
+791
+
+. 
+. // Quick descriptive check — confirm ERCOT divergence is visible
+. tabstat avg_demand_mwh if month_year < 760, by(ba_id) stats(mean)
+
+Summary for variables: avg_demand_mwh
+Group variable: ba_id 
+
+ ba_id |      Mean
+-------+----------
+  ERCO |  45131.19
+  MISO |  73000.52
+   PJM |  90396.75
+-------+----------
+ Total |  69509.49
+------------------
+
+. tabstat avg_demand_mwh if month_year >= 760, by(ba_id) stats(mean)
+
+Summary for variables: avg_demand_mwh
+Group variable: ba_id 
+
+ ba_id |      Mean
+-------+----------
+  ERCO |  54327.36
+  MISO |     74712
+   PJM |  93519.72
+-------+----------
+ Total |  74186.36
+------------------
+
+. 
+. // *** STOP HERE — verify output before proceeding to SC-1 ***
+. // Confirm: 1=ERCO, balanced panel, treatment date = 760
+. // Pre/post means should show ERCOT diverging relative to PJM and MISO
+. 
+. 
+. // ===========================================================================
+. // SECTION 3: SC-1 — PJM AND MISO DONOR POOL (LOWER BOUND)
+. // ===========================================================================
+. // Baseline synthetic control. Donor pool: PJM (ba_num=3) and MISO (ba_num=2).
+. // Treatment date: 2023m5 (trperiod=760). Treated unit: ERCO (trunit=1).
+. //
+. // Outcome variable: demand_idx — indexed demand, 2019 average = 100.
+. // Indexing required because ERCOT's absolute demand level sits outside
+. // the convex hull of PJM and MISO. Running synth on avg_demand_mwh
+. // produced RMSPE=28,227 with 100% weight on MISO and no meaningful fit.
+. // Indexed demand removes absolute scale differences and asks the correct
+. // question: did ERCOT's demand grow faster than a weighted combination
+. // of donors would predict?
+. //
+. // ACKNOWLEDGED LOWER BOUND: PJM and MISO received real data center
+. // investment over 2019-2025. They are contaminated donors. This gap
+. // estimate understates the true ERCOT treatment effect. Reported
+. // explicitly as lower bound. SC-2 and SC-3 use cleaner donor pools.
+. 
+. display _newline "--- SECTION 3: SC-1 PJM + MISO DONOR POOL ---"
+
+--- SECTION 3: SC-1 PJM + MISO DONOR POOL ---
+
+. 
+. // Create indexed demand variable — 2019 average = 100 for each BA
+. bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+(216 missing values generated)
+
+. bysort ba_num: egen demand_base = mean(demand_2019)
+
+. gen demand_idx = (avg_demand_mwh / demand_base) * 100
+
+. drop demand_2019
+
+. 
+. // Verify indexing
+. tabstat demand_idx if year == 2019, by(ba_id) stats(mean)
+
+Summary for variables: demand_idx
+Group variable: ba_id 
+
+ ba_id |      Mean
+-------+----------
+  ERCO |       100
+  MISO |       100
+   PJM |       100
+-------+----------
+ Total |       100
+------------------
+
+. // Expected: all BAs = 100
+. 
+. tabstat demand_idx if month_year >= 760, by(ba_id) stats(mean)
+
+Summary for variables: demand_idx
+Group variable: ba_id 
+
+ ba_id |      Mean
+-------+----------
+  ERCO |  124.1521
+  MISO |  100.7739
+   PJM |  102.3381
+-------+----------
+ Total |   109.088
+------------------
+
+. // Expected: ERCO ~124, MISO ~101, PJM ~102
+. 
+. // Run SC-1
+. synth demand_idx ///
+>     demand_idx(708) demand_idx(720) demand_idx(732) ///
+>     demand_idx(744) demand_idx(756) ///
+>     hdd cdd gdp, ///
+>     trunit(1) trperiod(760) ///
+>     keep(results/sc1_idx_results.dta) replace
+------------------------------------------------------------------------------------------------------------------------------
+Synthetic Control Method for Comparative Case Studies
+------------------------------------------------------------------------------------------------------------------------------
+
+First Step: Data Setup
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Data Setup successful
+------------------------------------------------------------------------------------------------------------------------------
+                Treated Unit: ERCO
+               Control Units: MISO, PJM
+------------------------------------------------------------------------------------------------------------------------------
+          Dependent Variable: demand_idx
+  MSPE minimized for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759
+Results obtained for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759 760 761 762 763 764 765 766 767 768 769 770 771 772 773 774 775 776 777 778 779
+                              780 781 782 783 784 785 786 787 788 789 790 791
+------------------------------------------------------------------------------------------------------------------------------
+                  Predictors: demand_idx(708) demand_idx(720) demand_idx(732) demand_idx(744) demand_idx(756) hdd cdd gdp
+------------------------------------------------------------------------------------------------------------------------------
+Unless period is specified
+predictors are averaged over: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759
+------------------------------------------------------------------------------------------------------------------------------
+
+Second Step: Run Optimization
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Optimization done
+------------------------------------------------------------------------------------------------------------------------------
+
+Third Step: Obtain Results
+------------------------------------------------------------------------------------------------------------------------------
+Loss: Root Mean Squared Prediction Error
+
+---------------------
+   RMSPE |  11.08859 
+---------------------
+------------------------------------------------------------------------------------------------------------------------------
+Unit Weights:
+
+-----------------------
+    Co_No | Unit_Weight
+----------+------------
+     MISO |        .752
+      PJM |        .248
+-----------------------
+------------------------------------------------------------------------------------------------------------------------------
+Predictor Balance:
+
+------------------------------------------------------
+                               |   Treated  Synthetic 
+-------------------------------+----------------------
+               demand_idx(708) |  91.51611   105.9307 
+               demand_idx(720) |  88.96645   100.0342 
+               demand_idx(732) |  94.66789   101.3973 
+               demand_idx(744) |  102.6297   108.4016 
+               demand_idx(756) |  98.63792   99.20606 
+                           hdd |  183.8558   475.6211 
+                           cdd |  233.5577   97.36046 
+                           gdp |   1888307    3607101 
+------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+
+. 
+. // Record weights and balance
+. matrix list e(W_weights)
+
+e(W_weights)[2,2]
+      _Co_Number   _W_Weight
+MISO           2        .752
+ PJM           3        .248
+
+. matrix list e(X_balance)
+
+e(X_balance)[8,2]
+        Treated  Synthetic
+demand_idx(
+708)  91.516113  105.93066
+demand_idx(
+720)  88.966446  100.03415
+demand_idx(
+732)  94.667892   101.3973
+demand_idx(
+744)  102.62971  108.40161
+demand_idx(
+756)  98.637917  99.206061
+ hdd  183.85577  475.62108
+ cdd  233.55769  97.360462
+ gdp  1888306.8  3607100.9
+
+. 
+. // SC-1 RESULTS (confirmed March 2026):
+. //   Pre-treatment RMSPE:     11.09 index points
+. //   Donor weights:           MISO 0.752, PJM 0.248
+. //   Post-treatment mean gap: 23.0 index points
+. //   Pre-treatment mean gap:  4.6 index points
+. //   Signal-to-noise ratio:   ~5:1
+. //   Interpretation:          ERCOT demand ran 23 index points above
+. //                            synthetic counterfactual after May 2023.
+. //                            Contaminated donors — lower bound estimate.
+. //                            Pre-treatment fit strongest 2021-2023.
+. 
+. // Compute and plot gap
+. use results/sc1_idx_results.dta, clear
+
+. gen gap = _Y_treated - _Y_synthetic
+
+. 
+. summarize gap if _time >= 760
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+         gap |         32    22.99022    11.34446    5.41904   40.45634
+
+. summarize gap if _time < 760
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+         gap |         52      4.5581    10.20688  -14.41455   25.03394
+
+. 
+. twoway line gap _time, lcolor(black) lwidth(medium) ///
+>     xline(760, lcolor(red) lpattern(dot)) ///
+>     yline(0, lcolor(gray) lpattern(dash)) ///
+>     xlabel(708(12)791, angle(45) format(%tmMon_CCYY)) ///
+>     ylabel(-30(10)50, format(%9.0f)) ///
+>     title("SC-1: ERCOT Demand Gap vs Synthetic ERCOT") ///
+>     ytitle("Gap (index points, 2019=100)") ///
+>     xtitle("") ///
+>     note("Positive values = ERCOT demand above synthetic counterfactual." ///
+>          "Vertical line = treatment date (2023m5). RMSPE=11.09." ///
+>          "Donor pool: PJM + MISO (contaminated — lower bound estimate).") ///
+>     saving(results/sc1_gap_plot.gph, replace)
+file results/sc1_gap_plot.gph saved
+
+. 
+. // Reload full panel for subsequent sections
+. import delimited "data/panel_with_controls.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(20 vars, 252 obs)
+
+. rename ba ba_id
+
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. encode ba_id, gen(ba_num)
+
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+(216 missing values generated)
+
+. bysort ba_num: egen demand_base = mean(demand_2019)
+
+. gen demand_idx = (avg_demand_mwh / demand_base) * 100
+
+. drop demand_2019
+
+. 
+. // *** STOP HERE — SC-2 requires expanded donor pool ***
+. // Next step: confirm which additional BAs are available in
+. // eia_demand_2018_2025.csv and classify low-exposure BAs
+. // from LBL queue data before proceeding to SC-2.
+. 
+. 
+. // ===========================================================================
+. // SECTION 4: SC-2 — EXPANDED DONOR POOL
+. // ===========================================================================
+. // Donor pool: ISNE, MISO, NYIS, PJM, SWPP (ba_num 2,3,4,5,6)
+. // Adds low-exposure BAs to the donor pool alongside PJM and MISO.
+. // If gap estimate rises above SC-1, expanded pool is doing real work.
+. // Pre-treatment RMSPE should improve with more donors.
+. 
+. display _newline "--- SECTION 4: SC-2 EXPANDED DONOR POOL ---"
+
+--- SECTION 4: SC-2 EXPANDED DONOR POOL ---
+
+. 
+. import delimited "data/panel_expanded.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(10 vars, 504 obs)
+
+. rename ba ba_id
+
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. encode ba_id, gen(ba_num)
+
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. 
+. // Index demand — 2019 average = 100 for each BA
+. bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+(432 missing values generated)
+
+. bysort ba_num: egen demand_base = mean(demand_2019)
+
+. gen demand_idx = (avg_demand_mwh / demand_base) * 100
+
+. drop demand_2019
+
+. 
+. synth demand_idx ///
+>     demand_idx(708) demand_idx(720) demand_idx(732) ///
+>     demand_idx(744) demand_idx(756) ///
+>     hdd cdd gdp, ///
+>     trunit(1) trperiod(760) ///
+>     keep(results/sc2_idx_results.dta) replace
+------------------------------------------------------------------------------------------------------------------------------
+Synthetic Control Method for Comparative Case Studies
+------------------------------------------------------------------------------------------------------------------------------
+
+First Step: Data Setup
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Data Setup successful
+------------------------------------------------------------------------------------------------------------------------------
+                Treated Unit: ERCO
+               Control Units: ISNE, MISO, NYIS, PJM, SWPP
+------------------------------------------------------------------------------------------------------------------------------
+          Dependent Variable: demand_idx
+  MSPE minimized for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759
+Results obtained for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759 760 761 762 763 764 765 766 767 768 769 770 771 772 773 774 775 776 777 778 779
+                              780 781 782 783 784 785 786 787 788 789 790 791
+------------------------------------------------------------------------------------------------------------------------------
+                  Predictors: demand_idx(708) demand_idx(720) demand_idx(732) demand_idx(744) demand_idx(756) hdd cdd gdp
+------------------------------------------------------------------------------------------------------------------------------
+Unless period is specified
+predictors are averaged over: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759
+------------------------------------------------------------------------------------------------------------------------------
+
+Second Step: Run Optimization
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Optimization done
+------------------------------------------------------------------------------------------------------------------------------
+
+Third Step: Obtain Results
+------------------------------------------------------------------------------------------------------------------------------
+Loss: Root Mean Squared Prediction Error
+
+---------------------
+   RMSPE |  8.300943 
+---------------------
+------------------------------------------------------------------------------------------------------------------------------
+Unit Weights:
+
+-----------------------
+    Co_No | Unit_Weight
+----------+------------
+     ISNE |           0
+     MISO |           0
+     NYIS |           0
+      PJM |           0
+     SWPP |           1
+-----------------------
+------------------------------------------------------------------------------------------------------------------------------
+Predictor Balance:
+
+------------------------------------------------------
+                               |   Treated  Synthetic 
+-------------------------------+----------------------
+               demand_idx(708) |  91.51611    103.032 
+               demand_idx(720) |  88.96645   99.62373 
+               demand_idx(732) |  94.66789   99.42068 
+               demand_idx(744) |  102.6297   105.6941 
+               demand_idx(756) |  98.63792   102.4526 
+                           hdd |  183.8558   315.2019 
+                           cdd |  233.5577   151.2115 
+                           gdp |   1888307     613794 
+------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+
+. 
+. matrix list e(W_weights)
+
+e(W_weights)[5,2]
+      _Co_Number   _W_Weight
+ISNE           2           0
+MISO           3           0
+NYIS           4           0
+ PJM           5           0
+SWPP           6           1
+
+. matrix list e(X_balance)
+
+e(X_balance)[8,2]
+        Treated  Synthetic
+demand_idx(
+708)  91.516113  103.03196
+demand_idx(
+720)  88.966446  99.623734
+demand_idx(
+732)  94.667892  99.420677
+demand_idx(
+744)  102.62971  105.69414
+demand_idx(
+756)  98.637917  102.45257
+ hdd  183.85577  315.20192
+ cdd  233.55769  151.21154
+ gdp  1888306.8  613794.02
+
+. 
+. // Compute and plot gap
+. use results/sc2_idx_results.dta, clear
+
+. gen gap = _Y_treated - _Y_synthetic
+
+. 
+. summarize gap if _time >= 760
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+         gap |         32    15.40902     9.21179   1.886185   28.43156
+
+. summarize gap if _time < 760
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+         gap |         52    3.069539    7.787807  -14.11123   21.23558
+
+. 
+. twoway line gap _time, lcolor(black) lwidth(medium) ///
+>     xline(760, lcolor(red) lpattern(dot)) ///
+>     yline(0, lcolor(gray) lpattern(dash)) ///
+>     xlabel(708(12)791, angle(45) format(%tmMon_CCYY)) ///
+>     ylabel(-30(10)50, format(%9.0f)) ///
+>     title("SC-2: ERCOT Demand Gap vs Synthetic ERCOT") ///
+>     ytitle("Gap (index points, 2019=100)") ///
+>     xtitle("") ///
+>     note("Donor pool: ISNE, MISO, NYIS, PJM, SWPP (expanded pool).") ///
+>     saving(results/sc2_gap_plot.gph, replace)
+file results/sc2_gap_plot.gph saved
+
+. 
+. // SC-2 RESULTS (confirmed March 2026):
+. //   Pre-treatment RMSPE:     8.30 index points (best fit of three specs)
+. //   Donor weights:           SWPP 1.0, all others 0
+. //   Post-treatment mean gap: 15.4 index points
+. //   Pre-treatment mean gap:  3.1 index points
+. //   Note: Optimizer selected SWPP exclusively — best pre-treatment match.
+. //         SWPP's own post-treatment demand growth compresses gap estimate.
+. //         Lower gap reflects donor trajectory, not absence of ERCOT effect.
+. 
+. 
+. // ===========================================================================
+. // SECTION 5: SC-3 — LOW-EXPOSURE DONOR POOL ONLY
+. // ===========================================================================
+. // Donor pool: ISNE(2), NYIS(4), SWPP(6) only — PJM and MISO excluded.
+. // Cleanest donor pool — removes contaminated units entirely.
+. // If SC-3 gap > SC-1 gap, contamination lower bound story is confirmed.
+. // If SC-3 ≈ SC-2, expanded pool result is stable.
+. 
+. display _newline "--- SECTION 5: SC-3 LOW-EXPOSURE DONOR POOL ---"
+
+--- SECTION 5: SC-3 LOW-EXPOSURE DONOR POOL ---
+
+. 
+. import delimited "data/panel_expanded.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(10 vars, 504 obs)
+
+. rename ba ba_id
+
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. encode ba_id, gen(ba_num)
+
+. 
+. // Drop PJM and MISO — low-exposure only
+. drop if ba_num == 3 | ba_num == 5
+(168 observations deleted)
+
+. 
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. 
+. // Index demand
+. bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+(288 missing values generated)
+
+. bysort ba_num: egen demand_base = mean(demand_2019)
+
+. gen demand_idx = (avg_demand_mwh / demand_base) * 100
+
+. drop demand_2019
+
+. 
+. synth demand_idx ///
+>     demand_idx(708) demand_idx(720) demand_idx(732) ///
+>     demand_idx(744) demand_idx(756) ///
+>     hdd cdd gdp, ///
+>     trunit(1) trperiod(760) ///
+>     keep(results/sc3_idx_results.dta) replace
+------------------------------------------------------------------------------------------------------------------------------
+Synthetic Control Method for Comparative Case Studies
+------------------------------------------------------------------------------------------------------------------------------
+
+First Step: Data Setup
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Data Setup successful
+------------------------------------------------------------------------------------------------------------------------------
+                Treated Unit: ERCO
+               Control Units: ISNE, NYIS, SWPP
+------------------------------------------------------------------------------------------------------------------------------
+          Dependent Variable: demand_idx
+  MSPE minimized for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759
+Results obtained for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759 760 761 762 763 764 765 766 767 768 769 770 771 772 773 774 775 776 777 778 779
+                              780 781 782 783 784 785 786 787 788 789 790 791
+------------------------------------------------------------------------------------------------------------------------------
+                  Predictors: demand_idx(708) demand_idx(720) demand_idx(732) demand_idx(744) demand_idx(756) hdd cdd gdp
+------------------------------------------------------------------------------------------------------------------------------
+Unless period is specified
+predictors are averaged over: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759
+------------------------------------------------------------------------------------------------------------------------------
+
+Second Step: Run Optimization
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Optimization done
+------------------------------------------------------------------------------------------------------------------------------
+
+Third Step: Obtain Results
+------------------------------------------------------------------------------------------------------------------------------
+Loss: Root Mean Squared Prediction Error
+
+---------------------
+   RMSPE |  11.12311 
+---------------------
+------------------------------------------------------------------------------------------------------------------------------
+Unit Weights:
+
+-----------------------
+    Co_No | Unit_Weight
+----------+------------
+     ISNE |           0
+     NYIS |        .755
+     SWPP |        .245
+-----------------------
+------------------------------------------------------------------------------------------------------------------------------
+Predictor Balance:
+
+------------------------------------------------------
+                               |   Treated  Synthetic 
+-------------------------------+----------------------
+               demand_idx(708) |  91.51611   104.5593 
+               demand_idx(720) |  88.96645   99.28539 
+               demand_idx(732) |  94.66789   99.76149 
+               demand_idx(744) |  102.6297   105.4947 
+               demand_idx(756) |  98.63792   97.48487 
+                           hdd |  183.8558   378.8542 
+                           cdd |  233.5577   105.5413 
+                           gdp |   1888307    1457372 
+------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+
+. 
+. matrix list e(W_weights)
+
+e(W_weights)[3,2]
+      _Co_Number   _W_Weight
+ISNE           2           0
+NYIS           4        .755
+SWPP           6        .245
+
+. matrix list e(X_balance)
+
+e(X_balance)[8,2]
+        Treated  Synthetic
+demand_idx(
+708)  91.516113  104.55929
+demand_idx(
+720)  88.966446  99.285386
+demand_idx(
+732)  94.667892  99.761491
+demand_idx(
+744)  102.62971   105.4947
+demand_idx(
+756)  98.637917  97.484874
+ hdd  183.85577  378.85423
+ cdd  233.55769   105.5413
+ gdp  1888306.8  1457371.5
+
+. 
+. // Compute and plot gap
+. use results/sc3_idx_results.dta, clear
+
+. gen gap = _Y_treated - _Y_synthetic
+
+. 
+. summarize gap if _time >= 760
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+         gap |         32    24.50485     12.5745   4.258442   43.66439
+
+. summarize gap if _time < 760
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+         gap |         52    5.085675    9.986798  -13.86483   30.55575
+
+. 
+. twoway line gap _time, lcolor(black) lwidth(medium) ///
+>     xline(760, lcolor(red) lpattern(dot)) ///
+>     yline(0, lcolor(gray) lpattern(dash)) ///
+>     xlabel(708(12)791, angle(45) format(%tmMon_CCYY)) ///
+>     ylabel(-30(10)50, format(%9.0f)) ///
+>     title("SC-3: ERCOT Demand Gap vs Synthetic ERCOT") ///
+>     ytitle("Gap (index points, 2019=100)") ///
+>     xtitle("") ///
+>     note("Donor pool: ISNE, NYIS, SWPP only (low-exposure, cleanest estimate).") ///
+>     saving(results/sc3_gap_plot.gph, replace)
+file results/sc3_gap_plot.gph saved
+
+. 
+. 
+. // SC-3 RESULTS (confirmed March 2026):
+. //   Pre-treatment RMSPE:     11.12 index points
+. //   Donor weights:           NYIS 0.755, SWPP 0.245, ISNE 0
+. //   Post-treatment mean gap: 24.5 index points  ← PRIMARY SC ESTIMATE
+. //   Pre-treatment mean gap:  5.1 index points
+. //   Note: Cleanest donor pool. Gap above SC-1 confirms contamination
+. //         lower bound story. ISNE receives zero weight — climate
+. //         mismatch prevents meaningful contribution to ERCOT match.
+. 
+. 
+. // ===========================================================================
+. // SECTION 5b: SC-3 CALENDAR DATE ROBUSTNESS — TREATMENT AT 2022m1
+. // ===========================================================================
+. // Purpose: Confirm Bai-Perron date of 2023m5 is not arbitrary.
+. // Method: Rerun SC-3 with treatment at 2022m1 (744) — the alternative
+. //         calendar date referenced in the methodology doc.
+. // Expected: Smaller gap than primary because 2022-2023 ramp-up period
+. //           is absorbed into the post-treatment window.
+. // File saved separately to avoid overwriting primary SC-3 results.
+. 
+. display _newline "--- SECTION 5b: CALENDAR DATE ROBUSTNESS 2022m1 ---"
+
+--- SECTION 5b: CALENDAR DATE ROBUSTNESS 2022m1 ---
+
+. 
+. // Reload SC-3 panel — same setup as Section 5
+. import delimited "data/panel_expanded.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(10 vars, 504 obs)
+
+. rename ba ba_id
+
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. encode ba_id, gen(ba_num)
+
+. drop if ba_num == 3 | ba_num == 5
+(168 observations deleted)
+
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+(288 missing values generated)
+
+. bysort ba_num: egen demand_base = mean(demand_2019)
+
+. gen demand_idx = (avg_demand_mwh / demand_base) * 100
+
+. drop demand_2019
+
+. 
+. synth demand_idx ///
+>     demand_idx(708) demand_idx(720) demand_idx(732) ///
+>     demand_idx(744) demand_idx(756) ///
+>     hdd cdd gdp, ///
+>     trunit(1) trperiod(744) ///
+>     keep(results/sc3_robustness_2022m1.dta) replace
+------------------------------------------------------------------------------------------------------------------------------
+Synthetic Control Method for Comparative Case Studies
+------------------------------------------------------------------------------------------------------------------------------
+
+First Step: Data Setup
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Data Setup successful
+------------------------------------------------------------------------------------------------------------------------------
+                Treated Unit: ERCO
+               Control Units: ISNE, NYIS, SWPP
+------------------------------------------------------------------------------------------------------------------------------
+          Dependent Variable: demand_idx
+  MSPE minimized for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743
+Results obtained for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759 760 761 762 763 764 765 766 767 768 769 770 771 772 773 774 775 776 777 778 779
+                              780 781 782 783 784 785 786 787 788 789 790 791
+------------------------------------------------------------------------------------------------------------------------------
+                  Predictors: demand_idx(708) demand_idx(720) demand_idx(732) demand_idx(744) demand_idx(756) hdd cdd gdp
+------------------------------------------------------------------------------------------------------------------------------
+Unless period is specified
+predictors are averaged over: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743
+------------------------------------------------------------------------------------------------------------------------------
+
+Second Step: Run Optimization
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Optimization done
+------------------------------------------------------------------------------------------------------------------------------
+
+Third Step: Obtain Results
+------------------------------------------------------------------------------------------------------------------------------
+Loss: Root Mean Squared Prediction Error
+
+---------------------
+   RMSPE |  9.249198 
+---------------------
+------------------------------------------------------------------------------------------------------------------------------
+Unit Weights:
+
+-----------------------
+    Co_No | Unit_Weight
+----------+------------
+     ISNE |           0
+     NYIS |        .796
+     SWPP |        .204
+-----------------------
+------------------------------------------------------------------------------------------------------------------------------
+Predictor Balance:
+
+------------------------------------------------------
+                               |   Treated  Synthetic 
+-------------------------------+----------------------
+               demand_idx(708) |  91.51611   104.6422 
+               demand_idx(720) |  88.96645   99.26701 
+               demand_idx(732) |  94.66789      99.78 
+               demand_idx(744) |  102.6297   105.4839 
+               demand_idx(756) |  98.63792   97.21511 
+                           hdd |  174.7639   361.0446 
+                           cdd |  237.6806   107.0886 
+                           gdp |   1831662    1482681 
+------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+
+. 
+. matrix list e(W_weights)
+
+e(W_weights)[3,2]
+      _Co_Number   _W_Weight
+ISNE           2           0
+NYIS           4        .796
+SWPP           6        .204
+
+. 
+. use results/sc3_robustness_2022m1.dta, clear
+
+. gen gap = _Y_treated - _Y_synthetic
+
+. 
+. summarize gap if _time >= 744
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+         gap |         48    20.49287    13.40879  -2.854157   44.64456
+
+. summarize gap if _time < 744
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+         gap |         36    2.401442    9.059513  -13.85144   17.73463
+
+. 
+. twoway line gap _time, lcolor(black) lwidth(medium) ///
+>     xline(744, lcolor(red) lpattern(dot)) ///
+>     yline(0, lcolor(gray) lpattern(dash)) ///
+>     xlabel(708(12)791, angle(45) format(%tmMon_CCYY)) ///
+>     ylabel(-30(10)50, format(%9.0f)) ///
+>     title("SC-3 Robustness: Calendar Date 2022m1") ///
+>     ytitle("Gap (index points, 2019=100)") ///
+>     xtitle("") ///
+>     note("Robustness check — treatment date 2022m1 (744)." ///
+>          "Primary estimate uses Bai-Perron date 2023m5 (760)." ///
+>          "Donor pool: ISNE, NYIS, SWPP.") ///
+>     name(sc3_calendar, replace) ///
+>     saving(results/sc3_robustness_2022m1_plot.gph, replace)
+(file results/sc3_robustness_2022m1_plot.gph not found)
+file results/sc3_robustness_2022m1_plot.gph saved
+
+. 
+. // RESULTS (confirmed March 2026):
+. //   RMSPE:               9.25
+. //   Weights:             NYIS 0.796, SWPP 0.204, ISNE 0
+. //   Post-treatment gap:  20.5 index points
+. //   Pre-treatment gap:   2.4 index points
+. //   Interpretation: Smaller gap than primary (24.5) because 2022-2023
+. //   ramp-up period is included in post-treatment window, diluting the
+. //   divergence estimate. Confirms Bai-Perron date of 2023m5 better
+. //   isolates the post-divergence period. Coherent with lower bound story.
+. 
+. // *** STOP HERE ***
+. // Compare SC-1, SC-2, SC-3 gap estimates before proceeding to placebos.
+. // If SC-1 < SC-2 ≈ SC-3, contamination lower bound story is confirmed.
+. 
+. 
+. // ===========================================================================
+. // SECTION 6: IN-TIME PLACEBO TESTS
+. // ===========================================================================
+. // Purpose: Test whether the 2023m5 treatment date is special.
+. // Method: Rerun SC-3 as if treatment had occurred at earlier dates.
+. // If placebo gaps are small relative to the true 2023m5 gap, that is
+. // evidence the result is not just noise in the synthetic control method.
+. //
+. // Placebo dates: 2020m1 (720), 2021m1 (732), 2022m1 (744)
+. // True treatment: 2023m5 (760)
+. // All use SC-3 donor pool: ERCO vs ISNE, NYIS, SWPP
+. 
+. display _newline "--- SECTION 6: IN-TIME PLACEBO TESTS ---"
+
+--- SECTION 6: IN-TIME PLACEBO TESTS ---
+
+. 
+. // Reload SC-3 panel
+. import delimited "data/panel_expanded.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(10 vars, 504 obs)
+
+. rename ba ba_id
+
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. encode ba_id, gen(ba_num)
+
+. drop if ba_num == 3 | ba_num == 5
+(168 observations deleted)
+
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+(288 missing values generated)
+
+. bysort ba_num: egen demand_base = mean(demand_2019)
+
+. gen demand_idx = (avg_demand_mwh / demand_base) * 100
+
+. drop demand_2019
+
+. 
+. // Placebo 1: treatment date = 2020m1 (720)
+. // Pre-treatment predictors limited to 708-719 (12 months only)
+. synth demand_idx demand_idx(708) demand_idx(714) demand_idx(719) hdd cdd gdp, ///
+>     trunit(1) trperiod(720) keep(results/sc3_intime_2020m1.dta) replace
+------------------------------------------------------------------------------------------------------------------------------
+Synthetic Control Method for Comparative Case Studies
+------------------------------------------------------------------------------------------------------------------------------
+
+First Step: Data Setup
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Data Setup successful
+------------------------------------------------------------------------------------------------------------------------------
+                Treated Unit: ERCO
+               Control Units: ISNE, NYIS, SWPP
+------------------------------------------------------------------------------------------------------------------------------
+          Dependent Variable: demand_idx
+  MSPE minimized for periods: 708 709 710 711 712 713 714 715 716 717 718 719
+Results obtained for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759 760 761 762 763 764 765 766 767 768 769 770 771 772 773 774 775 776 777 778 779
+                              780 781 782 783 784 785 786 787 788 789 790 791
+------------------------------------------------------------------------------------------------------------------------------
+                  Predictors: demand_idx(708) demand_idx(714) demand_idx(719) hdd cdd gdp
+------------------------------------------------------------------------------------------------------------------------------
+Unless period is specified
+predictors are averaged over: 708 709 710 711 712 713 714 715 716 717 718 719
+------------------------------------------------------------------------------------------------------------------------------
+
+Second Step: Run Optimization
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Optimization done
+------------------------------------------------------------------------------------------------------------------------------
+
+Third Step: Obtain Results
+------------------------------------------------------------------------------------------------------------------------------
+Loss: Root Mean Squared Prediction Error
+
+---------------------
+   RMSPE |  8.660878 
+---------------------
+------------------------------------------------------------------------------------------------------------------------------
+Unit Weights:
+
+-----------------------
+    Co_No | Unit_Weight
+----------+------------
+     ISNE |           0
+     NYIS |        .024
+     SWPP |        .976
+-----------------------
+------------------------------------------------------------------------------------------------------------------------------
+Predictor Balance:
+
+------------------------------------------------------
+                               |   Treated  Synthetic 
+-------------------------------+----------------------
+               demand_idx(708) |  91.51611   103.0805 
+               demand_idx(714) |  120.2881   118.3211 
+               demand_idx(719) |  89.75446   96.31726 
+                           hdd |  201.0417   326.1077 
+                           cdd |  245.8333   160.3997 
+                           gdp |   1806736   635407.9 
+------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+
+. display "In-time placebo 2020m1 RMSPE:"
+In-time placebo 2020m1 RMSPE:
+
+. matrix list e(RMSPE)
+
+symmetric e(RMSPE)[1,1]
+              c1
+RMSPE  8.6608784
+
+. 
+. // Placebo 2: treatment date = 2021m1 (732)
+. synth demand_idx demand_idx(708) demand_idx(714) demand_idx(720) ///
+>     demand_idx(726) demand_idx(731) hdd cdd gdp, ///
+>     trunit(1) trperiod(732) keep(results/sc3_intime_2021m1.dta) replace
+------------------------------------------------------------------------------------------------------------------------------
+Synthetic Control Method for Comparative Case Studies
+------------------------------------------------------------------------------------------------------------------------------
+
+First Step: Data Setup
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Data Setup successful
+------------------------------------------------------------------------------------------------------------------------------
+                Treated Unit: ERCO
+               Control Units: ISNE, NYIS, SWPP
+------------------------------------------------------------------------------------------------------------------------------
+          Dependent Variable: demand_idx
+  MSPE minimized for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+Results obtained for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759 760 761 762 763 764 765 766 767 768 769 770 771 772 773 774 775 776 777 778 779
+                              780 781 782 783 784 785 786 787 788 789 790 791
+------------------------------------------------------------------------------------------------------------------------------
+                  Predictors: demand_idx(708) demand_idx(714) demand_idx(720) demand_idx(726) demand_idx(731) hdd cdd gdp
+------------------------------------------------------------------------------------------------------------------------------
+Unless period is specified
+predictors are averaged over: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+------------------------------------------------------------------------------------------------------------------------------
+
+Second Step: Run Optimization
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Optimization done
+------------------------------------------------------------------------------------------------------------------------------
+
+Third Step: Obtain Results
+------------------------------------------------------------------------------------------------------------------------------
+Loss: Root Mean Squared Prediction Error
+
+---------------------
+   RMSPE |  8.035164 
+---------------------
+------------------------------------------------------------------------------------------------------------------------------
+Unit Weights:
+
+-----------------------
+    Co_No | Unit_Weight
+----------+------------
+     ISNE |           0
+     NYIS |        .087
+     SWPP |        .913
+-----------------------
+------------------------------------------------------------------------------------------------------------------------------
+Predictor Balance:
+
+------------------------------------------------------
+                               |   Treated  Synthetic 
+-------------------------------+----------------------
+               demand_idx(708) |  91.51611    103.208 
+               demand_idx(714) |  120.2881    118.835 
+               demand_idx(720) |  88.96645   99.58475 
+               demand_idx(726) |  123.5142   120.2495 
+               demand_idx(731) |  92.85173   97.43148 
+                           hdd |  182.8958    310.777 
+                           cdd |  237.0208   148.3208 
+                           gdp |   1794737   696191.8 
+------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+
+. display "In-time placebo 2021m1 RMSPE:"
+In-time placebo 2021m1 RMSPE:
+
+. matrix list e(RMSPE)
+
+symmetric e(RMSPE)[1,1]
+             c1
+RMSPE  8.035164
+
+. 
+. // Placebo 3: treatment date = 2022m1 (744)
+. synth demand_idx demand_idx(708) demand_idx(714) demand_idx(720) ///
+>     demand_idx(726) demand_idx(732) demand_idx(738) demand_idx(743) hdd cdd gdp, ///
+>     trunit(1) trperiod(744) keep(results/sc3_intime_2022m1.dta) replace
+------------------------------------------------------------------------------------------------------------------------------
+Synthetic Control Method for Comparative Case Studies
+------------------------------------------------------------------------------------------------------------------------------
+
+First Step: Data Setup
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Data Setup successful
+------------------------------------------------------------------------------------------------------------------------------
+                Treated Unit: ERCO
+               Control Units: ISNE, NYIS, SWPP
+------------------------------------------------------------------------------------------------------------------------------
+          Dependent Variable: demand_idx
+  MSPE minimized for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743
+Results obtained for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759 760 761 762 763 764 765 766 767 768 769 770 771 772 773 774 775 776 777 778 779
+                              780 781 782 783 784 785 786 787 788 789 790 791
+------------------------------------------------------------------------------------------------------------------------------
+                  Predictors: demand_idx(708) demand_idx(714) demand_idx(720) demand_idx(726) demand_idx(732) demand_idx(738)
+                              demand_idx(743) hdd cdd gdp
+------------------------------------------------------------------------------------------------------------------------------
+Unless period is specified
+predictors are averaged over: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743
+------------------------------------------------------------------------------------------------------------------------------
+
+Second Step: Run Optimization
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Optimization done
+------------------------------------------------------------------------------------------------------------------------------
+
+Third Step: Obtain Results
+------------------------------------------------------------------------------------------------------------------------------
+Loss: Root Mean Squared Prediction Error
+
+---------------------
+   RMSPE |  7.751265 
+---------------------
+------------------------------------------------------------------------------------------------------------------------------
+Unit Weights:
+
+-----------------------
+    Co_No | Unit_Weight
+----------+------------
+     ISNE |           0
+     NYIS |           0
+     SWPP |           1
+-----------------------
+------------------------------------------------------------------------------------------------------------------------------
+Predictor Balance:
+
+------------------------------------------------------
+                               |   Treated  Synthetic 
+-------------------------------+----------------------
+               demand_idx(708) |  91.51611    103.032 
+               demand_idx(714) |  120.2881   118.1254 
+               demand_idx(720) |  88.96645   99.62373 
+               demand_idx(726) |  123.5142   119.8756 
+               demand_idx(732) |  94.66789   99.42068 
+               demand_idx(738) |  121.3832   116.7838 
+               demand_idx(743) |  92.71803   93.51161 
+                           hdd |  174.7639   296.4028 
+                           cdd |  237.6806   152.9028 
+                           gdp |   1831662   605903.1 
+------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+
+. display "In-time placebo 2022m1 RMSPE:"
+In-time placebo 2022m1 RMSPE:
+
+. matrix list e(RMSPE)
+
+symmetric e(RMSPE)[1,1]
+              c1
+RMSPE  7.7512645
+
+. 
+. // Build combined gap dataset for plotting
+. // True treatment gap
+. use results/sc3_idx_results.dta, clear
+
+. gen gap_true = _Y_treated - _Y_synthetic
+
+. keep _time gap_true
+
+. save results/intime_combined.dta, replace
+file results/intime_combined.dta saved
+
+. 
+. // 2020m1 placebo gap
+. use results/sc3_intime_2020m1.dta, clear
+
+. gen gap_2020 = _Y_treated - _Y_synthetic
+
+. keep _time gap_2020
+
+. merge 1:1 _time using results/intime_combined.dta, nogenerate
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                                84  
+    -----------------------------------------
+
+. save results/intime_combined.dta, replace
+file results/intime_combined.dta saved
+
+. 
+. // 2021m1 placebo gap
+. use results/sc3_intime_2021m1.dta, clear
+
+. gen gap_2021 = _Y_treated - _Y_synthetic
+
+. keep _time gap_2021
+
+. merge 1:1 _time using results/intime_combined.dta, nogenerate
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                                84  
+    -----------------------------------------
+
+. save results/intime_combined.dta, replace
+file results/intime_combined.dta saved
+
+. 
+. // 2022m1 placebo gap
+. use results/sc3_intime_2022m1.dta, clear
+
+. gen gap_2022 = _Y_treated - _Y_synthetic
+
+. keep _time gap_2022
+
+. merge 1:1 _time using results/intime_combined.dta, nogenerate
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                                84  
+    -----------------------------------------
+
+. save results/intime_combined.dta, replace
+file results/intime_combined.dta saved
+
+. 
+. // Plot all four gap series on same figure
+. // True treatment in black, placebos in gray
+. use results/intime_combined.dta, clear
+
+. 
+. twoway ///
+>     (line gap_2020 _time, lcolor(gs10) lwidth(thin) lpattern(dash)) ///
+>     (line gap_2021 _time, lcolor(gs10) lwidth(thin) lpattern(dash)) ///
+>     (line gap_2022 _time, lcolor(gs10) lwidth(thin) lpattern(dash)) ///
+>     (line gap_true _time, lcolor(black) lwidth(medthick)) ///
+>     , xline(760, lcolor(red) lpattern(dot)) ///
+>     yline(0, lcolor(gray) lpattern(dash)) ///
+>     xlabel(708(12)791, angle(45) format(%tmMon_CCYY)) ///
+>     ylabel(-30(10)50, format(%9.0f)) ///
+>     legend(order(4 "True treatment (2023m5)" ///
+>                  1 "Placebo 2020m1" 2 "Placebo 2021m1" 3 "Placebo 2022m1") ///
+>            position(11) ring(0) cols(1)) ///
+>     title("In-Time Placebo Tests: SC-3 Specification") ///
+>     ytitle("Gap (index points, 2019=100)") ///
+>     xtitle("") ///
+>     note("Black = true treatment date (2023m5). Gray = placebo treatment dates." ///
+>          "Donor pool: ISNE, NYIS, SWPP.") ///
+>     saving(results/intime_placebo_plot.gph, replace)
+file results/intime_placebo_plot.gph saved
+
+. 
+. // *** STOP HERE — record RMSPE values and paste plot before Section 7 ***
+. 
+. 
+. // ===========================================================================
+. // SECTION 7: IN-SPACE PLACEBO TESTS
+. // ===========================================================================
+. // Purpose: Formal permutation inference for SC-3.
+. // Method: Treat each donor BA as if it were the treated unit.
+. //         Construct synthetic version from remaining units.
+. //         Compare post-treatment gap to ERCOT's gap.
+. // P-value = fraction of placebos with gap >= ERCOT's gap.
+. // RMSPE filter: exclude placebos where pre-treatment RMSPE > 2x ERCOT's.
+. // ERCOT SC-3 RMSPE = 11.12 — exclude placebos above 22.24.
+. // Minimum p-value with 3 donors = 1/4 = 0.25.
+. 
+. display _newline "--- SECTION 7: IN-SPACE PLACEBO TESTS ---"
+
+--- SECTION 7: IN-SPACE PLACEBO TESTS ---
+
+. 
+. // Reload SC-3 panel
+. import delimited "data/panel_expanded.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(10 vars, 504 obs)
+
+. rename ba ba_id
+
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. encode ba_id, gen(ba_num)
+
+. drop if ba_num == 3 | ba_num == 5
+(168 observations deleted)
+
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+(288 missing values generated)
+
+. bysort ba_num: egen demand_base = mean(demand_2019)
+
+. gen demand_idx = (avg_demand_mwh / demand_base) * 100
+
+. drop demand_2019
+
+. 
+. // Save ERCOT gap for comparison
+. use results/sc3_idx_results.dta, clear
+
+. gen gap_erco = _Y_treated - _Y_synthetic
+
+. keep _time gap_erco
+
+. save results/inspace_combined.dta, replace
+file results/inspace_combined.dta saved
+
+. 
+. // Placebo 1: ISNE as treated unit (ba_num=2)
+. // Donors: ERCO(1), NYIS(4), SWPP(6)
+. import delimited "data/panel_expanded.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(10 vars, 504 obs)
+
+. rename ba ba_id
+
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. encode ba_id, gen(ba_num)
+
+. drop if ba_num == 3 | ba_num == 5
+(168 observations deleted)
+
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+(288 missing values generated)
+
+. bysort ba_num: egen demand_base = mean(demand_2019)
+
+. gen demand_idx = (avg_demand_mwh / demand_base) * 100
+
+. drop demand_2019
+
+. 
+. synth demand_idx ///
+>     demand_idx(708) demand_idx(720) demand_idx(732) ///
+>     demand_idx(744) demand_idx(756) ///
+>     hdd cdd gdp, ///
+>     trunit(2) trperiod(760) keep(results/sc3_placebo_isne.dta) replace
+------------------------------------------------------------------------------------------------------------------------------
+Synthetic Control Method for Comparative Case Studies
+------------------------------------------------------------------------------------------------------------------------------
+
+First Step: Data Setup
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Data Setup successful
+------------------------------------------------------------------------------------------------------------------------------
+                Treated Unit: ISNE
+               Control Units: ERCO, NYIS, SWPP
+------------------------------------------------------------------------------------------------------------------------------
+          Dependent Variable: demand_idx
+  MSPE minimized for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759
+Results obtained for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759 760 761 762 763 764 765 766 767 768 769 770 771 772 773 774 775 776 777 778 779
+                              780 781 782 783 784 785 786 787 788 789 790 791
+------------------------------------------------------------------------------------------------------------------------------
+                  Predictors: demand_idx(708) demand_idx(720) demand_idx(732) demand_idx(744) demand_idx(756) hdd cdd gdp
+------------------------------------------------------------------------------------------------------------------------------
+Unless period is specified
+predictors are averaged over: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759
+------------------------------------------------------------------------------------------------------------------------------
+
+Second Step: Run Optimization
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Optimization done
+------------------------------------------------------------------------------------------------------------------------------
+
+Third Step: Obtain Results
+------------------------------------------------------------------------------------------------------------------------------
+Loss: Root Mean Squared Prediction Error
+
+---------------------
+   RMSPE |   5.11756 
+---------------------
+------------------------------------------------------------------------------------------------------------------------------
+Unit Weights:
+
+-----------------------
+    Co_No | Unit_Weight
+----------+------------
+     ERCO |           0
+     NYIS |        .304
+     SWPP |        .696
+-----------------------
+------------------------------------------------------------------------------------------------------------------------------
+Predictor Balance:
+
+------------------------------------------------------
+                               |   Treated  Synthetic 
+-------------------------------+----------------------
+               demand_idx(708) |  109.8494   103.6469 
+               demand_idx(720) |  102.6698    99.4875 
+               demand_idx(732) |  105.2185   99.55791 
+               demand_idx(744) |   111.405   105.6138 
+               demand_idx(756) |   101.096   100.4523 
+                           hdd |  447.0673   340.8315 
+                           cdd |  76.93269   132.8225 
+                           gdp |   1110101   953459.7 
+------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+
+. 
+. display "ISNE placebo RMSPE (threshold for exclusion = 22.24):"
+ISNE placebo RMSPE (threshold for exclusion = 22.24):
+
+. matrix list e(RMSPE)
+
+symmetric e(RMSPE)[1,1]
+              c1
+RMSPE  5.1175601
+
+. 
+. use results/sc3_placebo_isne.dta, clear
+
+. gen gap_isne = _Y_treated - _Y_synthetic
+
+. keep _time gap_isne
+
+. merge 1:1 _time using results/inspace_combined.dta, nogenerate
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                                84  
+    -----------------------------------------
+
+. save results/inspace_combined.dta, replace
+file results/inspace_combined.dta saved
+
+. 
+. // Placebo 2: NYIS as treated unit (ba_num=4)
+. // Donors: ERCO(1), ISNE(2), SWPP(6)
+. import delimited "data/panel_expanded.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(10 vars, 504 obs)
+
+. rename ba ba_id
+
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. encode ba_id, gen(ba_num)
+
+. drop if ba_num == 3 | ba_num == 5
+(168 observations deleted)
+
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+(288 missing values generated)
+
+. bysort ba_num: egen demand_base = mean(demand_2019)
+
+. gen demand_idx = (avg_demand_mwh / demand_base) * 100
+
+. drop demand_2019
+
+. 
+. synth demand_idx ///
+>     demand_idx(708) demand_idx(720) demand_idx(732) ///
+>     demand_idx(744) demand_idx(756) ///
+>     hdd cdd gdp, ///
+>     trunit(4) trperiod(760) keep(results/sc3_placebo_nyis.dta) replace
+------------------------------------------------------------------------------------------------------------------------------
+Synthetic Control Method for Comparative Case Studies
+------------------------------------------------------------------------------------------------------------------------------
+
+First Step: Data Setup
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Data Setup successful
+------------------------------------------------------------------------------------------------------------------------------
+                Treated Unit: NYIS
+               Control Units: ERCO, ISNE, SWPP
+------------------------------------------------------------------------------------------------------------------------------
+          Dependent Variable: demand_idx
+  MSPE minimized for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759
+Results obtained for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759 760 761 762 763 764 765 766 767 768 769 770 771 772 773 774 775 776 777 778 779
+                              780 781 782 783 784 785 786 787 788 789 790 791
+------------------------------------------------------------------------------------------------------------------------------
+                  Predictors: demand_idx(708) demand_idx(720) demand_idx(732) demand_idx(744) demand_idx(756) hdd cdd gdp
+------------------------------------------------------------------------------------------------------------------------------
+Unless period is specified
+predictors are averaged over: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759
+------------------------------------------------------------------------------------------------------------------------------
+
+Second Step: Run Optimization
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Optimization done
+------------------------------------------------------------------------------------------------------------------------------
+
+Third Step: Obtain Results
+------------------------------------------------------------------------------------------------------------------------------
+Loss: Root Mean Squared Prediction Error
+
+---------------------
+   RMSPE |  6.682637 
+---------------------
+------------------------------------------------------------------------------------------------------------------------------
+Unit Weights:
+
+-----------------------
+    Co_No | Unit_Weight
+----------+------------
+     ERCO |        .582
+     ISNE |        .418
+     SWPP |           0
+-----------------------
+------------------------------------------------------------------------------------------------------------------------------
+Predictor Balance:
+
+------------------------------------------------------
+                               |   Treated  Synthetic 
+-------------------------------+----------------------
+               demand_idx(708) |  105.0549   99.17942 
+               demand_idx(720) |  99.17559   94.69444 
+               demand_idx(732) |  99.87209   99.07803 
+               demand_idx(744) |    105.43   106.2978 
+               demand_idx(756) |  95.87284   99.66541 
+                           hdd |  399.5096   293.8782 
+                           cdd |  90.72115   168.0884 
+                           gdp |   1731115    1563017 
+------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+
+. 
+. display "NYIS placebo RMSPE (threshold for exclusion = 22.24):"
+NYIS placebo RMSPE (threshold for exclusion = 22.24):
+
+. matrix list e(RMSPE)
+
+symmetric e(RMSPE)[1,1]
+              c1
+RMSPE  6.6826367
+
+. 
+. use results/sc3_placebo_nyis.dta, clear
+
+. gen gap_nyis = _Y_treated - _Y_synthetic
+
+. keep _time gap_nyis
+
+. merge 1:1 _time using results/inspace_combined.dta, nogenerate
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                                84  
+    -----------------------------------------
+
+. save results/inspace_combined.dta, replace
+file results/inspace_combined.dta saved
+
+. 
+. // Placebo 3: SWPP as treated unit (ba_num=6)
+. // Donors: ERCO(1), ISNE(2), NYIS(4)
+. import delimited "data/panel_expanded.csv", clear
+(encoding automatically selected: ISO-8859-1)
+(10 vars, 504 obs)
+
+. rename ba ba_id
+
+. gen month_year = monthly(year_month, "YM")
+
+. format month_year %tm
+
+. encode ba_id, gen(ba_num)
+
+. drop if ba_num == 3 | ba_num == 5
+(168 observations deleted)
+
+. xtset ba_num month_year
+
+Panel variable: ba_num (strongly balanced)
+ Time variable: month_year, 2019m1 to 2025m12
+         Delta: 1 month
+
+. bysort ba_num: egen demand_2019 = mean(avg_demand_mwh) if year == 2019
+(288 missing values generated)
+
+. bysort ba_num: egen demand_base = mean(demand_2019)
+
+. gen demand_idx = (avg_demand_mwh / demand_base) * 100
+
+. drop demand_2019
+
+. 
+. synth demand_idx ///
+>     demand_idx(708) demand_idx(720) demand_idx(732) ///
+>     demand_idx(744) demand_idx(756) ///
+>     hdd cdd gdp, ///
+>     trunit(6) trperiod(760) keep(results/sc3_placebo_swpp.dta) replace
+------------------------------------------------------------------------------------------------------------------------------
+Synthetic Control Method for Comparative Case Studies
+------------------------------------------------------------------------------------------------------------------------------
+
+First Step: Data Setup
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Data Setup successful
+------------------------------------------------------------------------------------------------------------------------------
+                Treated Unit: SWPP
+               Control Units: ERCO, ISNE, NYIS
+------------------------------------------------------------------------------------------------------------------------------
+          Dependent Variable: demand_idx
+  MSPE minimized for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759
+Results obtained for periods: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759 760 761 762 763 764 765 766 767 768 769 770 771 772 773 774 775 776 777 778 779
+                              780 781 782 783 784 785 786 787 788 789 790 791
+------------------------------------------------------------------------------------------------------------------------------
+                  Predictors: demand_idx(708) demand_idx(720) demand_idx(732) demand_idx(744) demand_idx(756) hdd cdd gdp
+------------------------------------------------------------------------------------------------------------------------------
+Unless period is specified
+predictors are averaged over: 708 709 710 711 712 713 714 715 716 717 718 719 720 721 722 723 724 725 726 727 728 729 730 731
+                              732 733 734 735 736 737 738 739 740 741 742 743 744 745 746 747 748 749 750 751 752 753 754 755
+                              756 757 758 759
+------------------------------------------------------------------------------------------------------------------------------
+
+Second Step: Run Optimization
+------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+Optimization done
+------------------------------------------------------------------------------------------------------------------------------
+
+Third Step: Obtain Results
+------------------------------------------------------------------------------------------------------------------------------
+Loss: Root Mean Squared Prediction Error
+
+---------------------
+   RMSPE |  3.222991 
+---------------------
+------------------------------------------------------------------------------------------------------------------------------
+Unit Weights:
+
+-----------------------
+    Co_No | Unit_Weight
+----------+------------
+     ERCO |        .284
+     ISNE |        .716
+     NYIS |           0
+-----------------------
+------------------------------------------------------------------------------------------------------------------------------
+Predictor Balance:
+
+------------------------------------------------------
+                               |   Treated  Synthetic 
+-------------------------------+----------------------
+               demand_idx(708) |   103.032   104.6427 
+               demand_idx(720) |  99.62373   98.77803 
+               demand_idx(732) |  99.42068   102.2221 
+               demand_idx(744) |  105.6941   108.9128 
+               demand_idx(756) |  102.4526   100.3979 
+                           hdd |  315.2019   372.3152 
+                           cdd |  151.2115   121.4142 
+                           gdp |    613794    1331112 
+------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------------
+
+. 
+. display "SWPP placebo RMSPE (threshold for exclusion = 22.24):"
+SWPP placebo RMSPE (threshold for exclusion = 22.24):
+
+. matrix list e(RMSPE)
+
+symmetric e(RMSPE)[1,1]
+              c1
+RMSPE  3.2229908
+
+. 
+. use results/sc3_placebo_swpp.dta, clear
+
+. gen gap_swpp = _Y_treated - _Y_synthetic
+
+. keep _time gap_swpp
+
+. merge 1:1 _time using results/inspace_combined.dta, nogenerate
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                                84  
+    -----------------------------------------
+
+. save results/inspace_combined.dta, replace
+file results/inspace_combined.dta saved
+
+. 
+. 
+. // ===========================================================================
+. // SECTION 8: COMBINED VISUAL PRESENTATION
+. // ===========================================================================
+. // Plot ERCOT gap against all placebo gaps.
+. // Gray lines = placebo units. Black line = ERCOT.
+. // Dashed gray = placebo excluded by RMSPE filter (if any).
+. // This figure is the primary inferential exhibit for the paper.
+. // P-value computed below after examining RMSPE filter results.
+. 
+. display _newline "--- SECTION 8: IN-SPACE PLACEBO FIGURE ---"
+
+--- SECTION 8: IN-SPACE PLACEBO FIGURE ---
+
+. 
+. use results/inspace_combined.dta, clear
+
+. 
+. // Note: update lpattern for excluded placebos after checking RMSPE values
+. // If placebo RMSPE > 22.24, change its line to lpattern(shortdash) and
+. // add to figure note that it was excluded from p-value computation.
+. 
+. twoway ///
+>     (line gap_isne _time, lcolor(gs12) lwidth(thin)) ///
+>     (line gap_nyis _time, lcolor(gs12) lwidth(thin)) ///
+>     (line gap_swpp _time, lcolor(gs12) lwidth(thin)) ///
+>     (line gap_erco _time, lcolor(black) lwidth(medthick)) ///
+>     , xline(760, lcolor(red) lpattern(dot)) ///
+>     yline(0, lcolor(gray) lpattern(dash)) ///
+>     xlabel(708(12)791, angle(45) format(%tmMon_CCYY)) ///
+>     ylabel(-50(10)60, format(%9.0f)) ///
+>     legend(order(4 "ERCOT (treated)" 1 "ISNE placebo" ///
+>                  2 "NYIS placebo" 3 "SWPP placebo") ///
+>            position(11) ring(0) cols(1)) ///
+>     title("In-Space Placebo Tests: SC-3 Specification") ///
+>     ytitle("Gap (index points, 2019=100)") ///
+>     xtitle("") ///
+>     note("Black = ERCOT. Gray = donor BAs treated as placebo units." ///
+>          "Vertical line = treatment date (2023m5)." ///
+>          "Placebos with pre-treatment RMSPE > 2x ERCOT excluded from p-value.") ///
+>     saving(results/inspace_placebo_plot.gph, replace)
+file results/inspace_placebo_plot.gph saved
+
+. 
+. // P-value computation — fill in after examining RMSPE values above
+. // Step 1: Record post-treatment mean gap for ERCOT: 24.5 index points
+. // Step 2: For each placebo NOT excluded by RMSPE filter, compute mean
+. //         post-treatment gap and check whether it exceeds 24.5
+. // Step 3: P-value = (number of placebos with gap >= 24.5) / (total placebos + 1)
+. 
+. summarize gap_erco if _time >= 760
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+    gap_erco |         32    24.50485     12.5745   4.258442   43.66439
+
+. summarize gap_isne if _time >= 760
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+    gap_isne |         32   -8.551055    6.583934   -20.3153   2.034655
+
+. summarize gap_nyis if _time >= 760
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+    gap_nyis |         32   -15.91027    6.935004  -27.53141  -4.192619
+
+. summarize gap_swpp if _time >= 760
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+    gap_swpp |         32    4.368691    3.867047  -2.279742   12.91427
+
+. 
+. // *** STOP HERE ***
+. // Paste: all four RMSPE values, all four post-treatment gap summaries,
+. // and both plot windows (in-time and in-space).
+. // We will compute the formal p-value and record all results together.
+. 
+end of do-file
+
+. exit, clear
