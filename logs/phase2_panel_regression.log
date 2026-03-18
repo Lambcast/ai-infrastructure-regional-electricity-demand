@@ -1,13 +1,13 @@
--------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
       name:  <unnamed>
-       log:  C:\Users\alamb\OneDrive\Alans Work Folder\independent projects\ai-electricity-demand\logs/phase2
-> _panel_regression.log
+       log:  C:\Users\alamb\OneDrive\Alans Work Folder\independent projects\ai-electricity-demand\logs/phas
+> e2_panel_regression.log
   log type:  text
- opened on:  14 Mar 2026, 17:16:53
+ opened on:  18 Mar 2026, 11:23:34
 
 . 
 . display "Session started: $S_DATE $S_TIME"
-Session started: 14 Mar 2026 17:16:53
+Session started: 18 Mar 2026 11:23:34
 
 . display "Stata version: `c(stata_version)'"
 Stata version: 19
@@ -96,10 +96,10 @@ Panel variable: ba_num (strongly balanced)
 Contains data
  Observations:           252                  
     Variables:            21                  
--------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
 Variable      Storage   Display    Value
     name         type    format    label      Variable label
--------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
 ba_id           str4    %9s                   
 year_month      str7    %9s                   
 year            int     %8.0g                 
@@ -121,7 +121,7 @@ month_year      float   %tm
 ba_num          long    %8.0g      ba_num     
 queue_mw_lar~30 float   %9.0g                 
 queue_mw_lag30  float   %9.0g                 
--------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
 Sorted by: ba_num  month_year
      Note: Dataset has changed since last saved.
 
@@ -232,8 +232,8 @@ Absorbed degrees of freedom:
 
 Overriding estimator's cluster/robust settings with cluster(ba_id)
 
-Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
-> id, Webb weights:
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by b
+> a_id, Webb weights:
   queue_mw_large_lag18
 
                             t(2) =    -0.2303
@@ -427,8 +427,8 @@ Absorbed degrees of freedom:
 
 Overriding estimator's cluster/robust settings with cluster(ba_id)
 
-Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
-> id, Webb weights:
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by b
+> a_id, Webb weights:
   queue_lag18_wins
 
                             t(2) =     4.4584
@@ -726,13 +726,13 @@ Absorbed degrees of freedom:
   month_year |        66           0          66     |
 -----------------------------------------------------+
 
-. boottest queue_lag18_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
-> x(2)
+. boottest queue_lag18_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) grid
+> max(2)
 
 Overriding estimator's cluster/robust settings with cluster(ba_id)
 
-Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
-> id, Webb weights:
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by b
+> a_id, Webb weights:
   queue_lag18_wins
 
                             t(2) =     4.4584
@@ -781,13 +781,13 @@ Absorbed degrees of freedom:
   month_year |        72           0          72     |
 -----------------------------------------------------+
 
-. boottest queue_lag12_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
-> x(2)
+. boottest queue_lag12_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) grid
+> max(2)
 
 Overriding estimator's cluster/robust settings with cluster(ba_id)
 
-Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
-> id, Webb weights:
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by b
+> a_id, Webb weights:
   queue_lag12_wins
 
                             t(2) =     1.5969
@@ -838,13 +838,13 @@ Absorbed degrees of freedom:
   month_year |        60           0          60     |
 -----------------------------------------------------+
 
-. boottest queue_lag24_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
-> x(2)
+. boottest queue_lag24_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) grid
+> max(2)
 
 Overriding estimator's cluster/robust settings with cluster(ba_id)
 
-Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
-> id, Webb weights:
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by b
+> a_id, Webb weights:
   queue_lag24_wins
 
                             t(2) =     2.5200
@@ -893,13 +893,13 @@ Absorbed degrees of freedom:
   month_year |        54           0          54     |
 -----------------------------------------------------+
 
-. boottest queue_lag30_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
-> x(2)
+. boottest queue_lag30_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) grid
+> max(2)
 
 Overriding estimator's cluster/robust settings with cluster(ba_id)
 
-Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
-> id, Webb weights:
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by b
+> a_id, Webb weights:
   queue_lag30_wins
 
                             t(2) =    -5.7069
@@ -936,15 +936,16 @@ Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id
 . gen queue_lag18_wins_50 = queue_mw_large_lag18_50
 (54 missing values generated)
 
-. replace queue_lag18_wins_50 = 18588.29 if queue_mw_large_lag18_50 > 18588.29 & queue_mw_large_lag18_50 != .
+. replace queue_lag18_wins_50 = 18588.29 if queue_mw_large_lag18_50 > 18588.29 & queue_mw_large_lag18_50 !=
+>  .
 (11 real changes made)
 
 . 
 . gen queue_lag18_wins_200 = queue_mw_large_lag18_200
 (54 missing values generated)
 
-. replace queue_lag18_wins_200 = 18588.29 if queue_mw_large_lag18_200 > 18588.29 & queue_mw_large_lag18_200 !
-> = .
+. replace queue_lag18_wins_200 = 18588.29 if queue_mw_large_lag18_200 > 18588.29 & queue_mw_large_lag18_200
+>  != .
 (5 real changes made)
 
 . 
@@ -988,13 +989,13 @@ Absorbed degrees of freedom:
   month_year |        66           0          66     |
 -----------------------------------------------------+
 
-. boottest queue_lag18_wins_50, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gri
-> dmax(2)
+. boottest queue_lag18_wins_50, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) g
+> ridmax(2)
 
 Overriding estimator's cluster/robust settings with cluster(ba_id)
 
-Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
-> id, Webb weights:
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by b
+> a_id, Webb weights:
   queue_lag18_wins_50
 
                             t(2) =     3.9822
@@ -1043,13 +1044,13 @@ Absorbed degrees of freedom:
   month_year |        66           0          66     |
 -----------------------------------------------------+
 
-. boottest queue_lag18_wins_200, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gr
-> idmax(2)
+. boottest queue_lag18_wins_200, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) 
+> gridmax(2)
 
 Overriding estimator's cluster/robust settings with cluster(ba_id)
 
-Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
-> id, Webb weights:
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by b
+> a_id, Webb weights:
   queue_lag18_wins_200
 
                             t(2) =     0.0310
@@ -1058,11 +1059,18 @@ Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id
 95% confidence set for null hypothesis expression: [−.4167, .3897]
 
 . 
-. // PANEL B RESULTS — record after running:
-. //   S5 50MW:  coef=   CI=   p=
-. //   S6 200MW: coef=   CI=   p=
-. //   If coefficients similar to S1 (0.029), threshold choice does not drive result.
-. //   If S6 200MW larger, effect concentrated in true hyperscale projects.
+. // PANEL B RESULTS (confirmed March 2026):
+. //   S5 50MW:  coef=0.025  CI=[-0.062, 0.078]  p=0.064
+. //   S1 100MW: coef=0.029  CI=[-0.093, 0.101]  p=0.063  PRIMARY
+. //   S6 200MW: coef=0.001  CI=[-0.417, 0.390]  p=0.905
+. //
+. //   Pattern: S5 and S1 nearly identical — result is not sensitive to
+. //   50MW vs 100MW threshold choice. S6 collapses to zero — at 200MW
+. //   the variable has insufficient within-BA variation to identify
+. //   anything. Very few projects cross 200MW per month per BA.
+. //   Effect concentrated in 50-100MW+ range, not exclusively in the
+. //   largest hyperscale campuses. 100MW primary threshold confirmed
+. //   as data-driven and not driving the result artificially.
 . 
 . 
 . // ------------------------------------------------------------------
@@ -1118,13 +1126,13 @@ Absorbed degrees of freedom:
   month_year |        66           0          66     |
 -----------------------------------------------------+
 
-. boottest queue_lag18_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
-> x(2)
+. boottest queue_lag18_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) grid
+> max(2)
 
 Overriding estimator's cluster/robust settings with cluster(ba_id)
 
-Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
-> id, Webb weights:
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by b
+> a_id, Webb weights:
   queue_lag18_wins
 
                             t(2) =     0.8543
@@ -1140,8 +1148,8 @@ Panel C — S8: BA-specific linear time trends:
 . // Note: trend_pjm dropped by Stata due to collinearity with month_year FE
 . // and i.ba_num. With 3 BAs only 2 BA-specific trends are identified.
 . // Expected and documented — does not affect ERCOT and MISO estimates.
-. reghdfe avg_demand_mwh queue_lag18_wins hdd cdd gdp trend_erco trend_miso trend_pjm i.ba_num, absorb(month_
-> year) cluster(ba_id)
+. reghdfe avg_demand_mwh queue_lag18_wins hdd cdd gdp trend_erco trend_miso trend_pjm i.ba_num, absorb(mont
+> h_year) cluster(ba_id)
 (MWFE estimator converged in 1 iterations)
 note: trend_pjm omitted because of collinearity
 warning: missing F statistic; dropped variables due to collinearity or too few clusters
@@ -1181,13 +1189,13 @@ Absorbed degrees of freedom:
   month_year |        66           0          66     |
 -----------------------------------------------------+
 
-. boottest queue_lag18_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
-> x(2)
+. boottest queue_lag18_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) grid
+> max(2)
 
 Overriding estimator's cluster/robust settings with cluster(ba_id)
 
-Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
-> id, Webb weights:
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by b
+> a_id, Webb weights:
   queue_lag18_wins
 
                             t(2) =    -0.6769
@@ -1201,8 +1209,8 @@ Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id
 Panel C — S9: BA-specific quadratic time trends (most conservative):
 
 . // Note: trend_pjm and trend_sq_pjm both dropped. Same collinearity reason.
-. reghdfe avg_demand_mwh queue_lag18_wins hdd cdd gdp trend_erco trend_miso trend_pjm trend_sq_erco trend_sq_
-> miso trend_sq_pjm i.ba_num, absorb(month_year) cluster(ba_id)
+. reghdfe avg_demand_mwh queue_lag18_wins hdd cdd gdp trend_erco trend_miso trend_pjm trend_sq_erco trend_s
+> q_miso trend_sq_pjm i.ba_num, absorb(month_year) cluster(ba_id)
 (MWFE estimator converged in 1 iterations)
 note: trend_pjm omitted because of collinearity
 note: trend_sq_pjm omitted because of collinearity
@@ -1246,13 +1254,13 @@ Absorbed degrees of freedom:
   month_year |        66           0          66     |
 -----------------------------------------------------+
 
-. boottest queue_lag18_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridma
-> x(2)
+. boottest queue_lag18_wins, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) grid
+> max(2)
 
 Overriding estimator's cluster/robust settings with cluster(ba_id)
 
-Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
-> id, Webb weights:
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by b
+> a_id, Webb weights:
   queue_lag18_wins
 
                             t(2) =    -0.4933
@@ -1327,13 +1335,13 @@ Absorbed degrees of freedom:
   month_year |        66           0          66     |
 -----------------------------------------------------+
 
-. boottest queue_all_lag18, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridmax
-> (2)
+. boottest queue_all_lag18, boottype(wild) cluster(ba_id) reps(999) seed(42) weight(webb) gridmin(-2) gridm
+> ax(2)
 
 Overriding estimator's cluster/robust settings with cluster(ba_id)
 
-Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by ba_
-> id, Webb weights:
+Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id, bootstrap clustering by b
+> a_id, Webb weights:
   queue_all_lag18
 
                             t(2) =     3.4162
@@ -1356,8 +1364,8 @@ Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id
 . 
 . log close
       name:  <unnamed>
-       log:  C:\Users\alamb\OneDrive\Alans Work Folder\independent projects\ai-electricity-demand\logs/phase2
-> _panel_regression.log
+       log:  C:\Users\alamb\OneDrive\Alans Work Folder\independent projects\ai-electricity-demand\logs/phas
+> e2_panel_regression.log
   log type:  text
- closed on:  14 Mar 2026, 17:17:07
--------------------------------------------------------------------------------------------------------------
+ closed on:  18 Mar 2026, 11:23:47
+-----------------------------------------------------------------------------------------------------------
