@@ -123,7 +123,7 @@ ax.plot(ciso_plot["year_month"].dt.to_timestamp(), ciso_plot["idx"],
 
 ax.axhline(100, color="black", linestyle="--", linewidth=1, alpha=0.4,
            label="Baseline (2019 = 100)")
-ax.set_title("Indexed Electricity Demand Growth — CAISO vs ERCO, PJM, MISO\n2019 = 100",
+ax.set_title("Indexed Electricity Demand Growth — CAISO vs ERCOT, PJM, MISO\n2019 = 100",
              fontsize=13, fontweight="bold")
 ax.set_xlabel("Month", fontsize=11)
 ax.set_ylabel("Demand Index (2019 = 100)", fontsize=11)
