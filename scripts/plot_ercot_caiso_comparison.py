@@ -161,7 +161,7 @@ ax.legend(loc="upper left", fontsize=7.5, frameon=False)
 
 # ── Figure title ──────────────────────────────────────────────────────────────
 fig.suptitle(
-    "Figure 7. Synthetic Control Gap \u2014 ERCOT vs. CAISO\n"
+    "Figure 8. Synthetic Control Gap \u2014 ERCOT vs. CAISO\n"
     "Deregulated vs. Regulated Market Response to Data Center Investment",
     fontsize=11, fontweight="bold", y=1.01
 )
