@@ -75,7 +75,7 @@ for (label, date), color, ypos in zip(energizations, colors_e, y_positions):
 
 # ── Labels and formatting ─────────────────────────────────────────────────────
 ax.set_title(
-    "SC3 Synthetic Control Gap — ERCOT Min Demand\nWith Known Data Center Energization Events",
+    "SC-3 Synthetic Control Gap — ERCOT Min Demand\nWith Known Data Center Energization Events",
     fontsize=13, fontweight="bold"
 )
 ax.set_xlabel("Month", fontsize=11)
