@@ -1,143 +1,77 @@
-# AI Infrastructure & Regional Electricity Demand
-### A Forecasting Framework for U.S. Grid Stress
+# AI Infrastructure and Regional Electricity Demand
+## Evidence from U.S. Interconnection Queues
 
-**Alan Lamb** | Lambcast Applied Economics | M.S. Applied Economics, University of Maryland | 2026  
-[lambcast.net](https://lambcast.net)
-
----
-
-## Project Overview
-
-This project quantifies the relationship between data center investment and regional electricity demand growth, then builds a forward-looking grid stress forecast across three major U.S. electricity markets:
-
-- **PJM** — Mid-Atlantic / Midwest (largest data center market in the world)
-- **ERCOT** — Texas (fastest-growing data center market)
-- **MISO** — Southeast / Midwest (high-growth corridor)
-
-The project produces three deliverables:
-1. **NBER-style working paper** — posted on lambcast.net and submitted to SSRN
-2. **Hex dashboard** — interactive regional grid stress forecast by balancing authority
-3. **5 blog posts** on lambcast.net documenting the build process
+**Alan Lamb** | M.S. Applied Economics, University of Maryland | 2026  
+[lambcast.net](https://lambcast.net) | [SSRN Working Paper](https://ssrn.com/abstract=6446446) *(forthcoming)*
 
 ---
 
-## Research Question
+## Overview
 
-> How much has data center investment driven regional electricity demand growth — and can we build a model that forecasts future grid stress from the existing investment pipeline?
+This project estimates the association between large-scale data center
+investment and regional electricity demand growth across three U.S.
+balancing authorities: ERCOT (Texas), PJM (Mid-Atlantic/Midwest), and
+MISO (Southeast/Midwest). CAISO (California) serves as an
+institutional falsification check.
 
----
+The treatment variable is generation interconnection queue filings
+from the LBNL Queued Up 2024 dataset. Unlike press releases or
+announced investment figures, interconnection filings are legally
+binding commitments with precise dates, locations, and MW ratings.
+This eliminates the measurement error that affects announcement-based
+designs.
 
-## Design Note
-
-Project-level large load queue data does not exist as a public bulk download for PJM, ERCOT, or MISO. This absence is documented as an explicit policy finding. The identification strategy uses generation-side queue data (UMD + LBL) as the best available public proxy, and employs four complementary methods to produce a credible estimated range rather than a single overclaimed causal estimate.
-
----
-
-## Identification Strategy
-
-Four layers, used together to bound the demand effect of data center investment:
-
-**Layer 1 — Panel Regression**  
-Conditional association estimate. Outcome: monthly average hourly demand by BA. Primary regressor: `queue_mw_filed_large` (100MW+ projects) lagged 18 months. Controls: HDD, CDD, regional GDP. Fixed effects: BA-level and month-year. Inference via wild cluster bootstrap (Stata `boottest`) — not asymptotic clustered SEs. With 3 clusters, the minimum achievable p-value is 0.125, reported explicitly.
-
-**Layer 2 — Synthetic Control**  
-ERCOT as the treated unit. PJM and MISO as baseline donor pool. Treatment date determined by Bai-Perron structural break test. Acknowledged lower bound: PJM and MISO are themselves experiencing data center investment (contaminated donors). Donor pool expanded using LBL data to include low-exposure ISOs (ISONE, NYISO candidates) for robustness.
-
-**Layer 3 — DiD with Low-Exposure Controls**  
-BAs classified as low-exposure using cumulative 100MW+ queue filings from LBL data. ISONE and NYISO as primary candidates. Parallel pre-trends tested before estimation.
-
-**Layer 4 — Narrative Validation**  
-Known large ERCOT data center energizations overlaid on the synthetic control gap plot. Qualitative confirmation that estimated effects align with documented real-world events.
-
-**Expected ordering of estimates:** Synthetic control (lowest) → Panel regression (middle) → DiD with clean controls (highest). Convergence with this ordering confirms the contamination lower bound story.
+The project combines a four-layer causal identification strategy with
+a three-model forecasting pipeline and an interactive regional demand
+dashboard.
 
 ---
 
-## Key Early Findings (Phase 1)
+## Key Findings
 
-- ERCOT demand grew ~27% from 2019 to 2025 (indexed, 2019=100). PJM and MISO remained essentially flat (~102–105).
-- ERCOT interconnection queue filings reached 97 GW in 2024 and 93 GW in 2023 — the two largest years on record.
-- Battery storage became the dominant new generation type in ERCOT from 2022 onward.
-- Analysis panel complete: 252 rows, 3 BAs × 84 months (2019-01 to 2025-12).
+**Main empirical result:** ERCOT minimum hourly demand diverges from
+its synthetic counterfactual by 34.8 index points (2019 = 100)
+following the May 2023 structural break identified by Bai-Perron
+testing. Zero of three in-space placebos exceed ERCOT's gap
+(p = 0.25, minimum achievable with three donors).
+
+Minimum demand isolates the always-on baseload floor of data center
+infrastructure. Average demand conflates weather-driven peaks with
+structural load growth; minimum demand does not. This distinction is
+the methodological contribution of the paper.
+
+**Falsification:** No structural break is detected in CAISO
+(UDmax = 4.00). Synthetic control gaps for CAISO are weak and
+negative post-treatment. The contrast between ERCOT's open-access
+queue and CAISO's regulated environment is consistent with the
+asymmetric results across identification layers.
+
+**Scenario analysis:** ARIMA, Prophet, and XGBoost models are
+estimated on ERCOT zone-level monthly demand (8 zones, 2019-2025).
+Conservative and trend scenario projections extend through 2026-2027.
+XGBoost with queue-derived features produces the lowest
+out-of-sample RMSE.
 
 ---
 
-## Forecasting Model
+## Live Dashboard
 
-Association estimates from the panel regression feed a forward-looking pipeline:
+Scenario projections and zone-level demand analysis are available in
+the interactive Hex dashboard:
 
-| Model | Role |
-|---|---|
-| ARIMA | Baseline with weather and economic controls |
-| Prophet | Handles seasonality and holidays |
-| XGBoost | Full feature set from queue pipeline |
-| PySpark | Distributed feature engineering on 100M+ row EIA dataset |
-
-Output: regional grid stress forecasts by BA with uncertainty bounds.
+[AI Infrastructure and Regional Electricity Demand — Hex Dashboard](https://app.hex.tech/019d202f-da81-7007-97ee-426ecaa0225e/app/AI-infrastructure-Regional-Electricity-Demand-Evidence-from-US-Interconnection-Queues-032nXU0Qyl37dzoD7TiIpZ/latest)
 
 ---
 
 ## Data Sources
 
-| Dataset | Source | Status |
-|---|---|---|
-| EIA Form 930 hourly demand | eia.gov/opendata | ✅ 184,102 rows (2019–2025) |
-| UMD PJM Queue 2008–2024 | UMD Economics (NSF-funded) | ✅ In hand — 7,492 rows, 121 cols |
-| LBL Queued Up 2024 | Lawrence Berkeley National Lab | ✅ In hand — 16,093 rows after filter |
-| Analysis Panel | Built from above | ✅ data/panel_base.csv — 252 rows, 17 cols |
-| NOAA Weather (HDD/CDD) | NCEI Climate Data Online API | ⏳ Pending |
-| BEA Regional GDP | BEA Regional Accounts | ⏳ Pending |
-| ERCOT Large Load Queue | ERCOT public portal | ❌ PDFs only — documented as data gap |
-| PJM Large Load Queue | PJM | ❌ No public dataset |
-| MISO Large Load Queue | MISO | ❌ API blocked |
-
----
-
-## Repository Structure
-
-```
-├── data/                          # Raw data files (gitignored)
-│   ├── eia_demand_2018_2025.csv   # 184,102 rows EIA Form 930
-│   ├── lbnl_queue_data.csv        # LBL queue, filtered to PJM/MISO/ERCOT
-│   ├── pjm_main_data_for_public_with_additional_vars.csv
-│   └── panel_base.csv             # Core analysis panel — 252 rows, 17 cols
-├── scripts/
-│   ├── pull_eia_demand.py         # EIA demand data pull
-│   ├── explore_eia.py             # Demand charts
-│   ├── explore_queue.py           # Queue charts
-│   └── build_panel.py             # Builds data/panel_base.csv
-├── outputs/                       # Generated charts (tracked by git)
-├── notebooks/                     # Jupyter notebooks
-├── .env                           # API keys (NOT committed)
-├── .gitignore
-└── README.md
-```
-
----
-
-## Setup
-
-```bash
-# Clone repo
-git clone https://github.com/Lambcast/ai-infrastructure-regional-electricity-demand.git
-cd ai-electricity-demand
-
-# Install dependencies
-pip install requests pandas matplotlib python-dotenv openpyxl
-
-# Set up API key
-echo "EIA_API_KEY=your_key_here" > .env
-
-# Pull demand data
-python scripts/pull_eia_demand.py
-
-# Exploratory charts
-python scripts/explore_eia.py
-python scripts/explore_queue.py
-
-# Build analysis panel
-python scripts/build_panel.py
-```
+| Dataset | Source |
+|---|---|
+| EIA Form 930 hourly demand | EIA Open Data API |
+| Generation interconnection queues | LBNL Queued Up 2024 |
+| Temperature and HDD/CDD | NOAA NCEI Climate Data Online API |
+| Regional GDP | BEA Regional Accounts (SAGDP9) |
+| PJM historical queue 2008-2020 | Johnston, Liu, Yang (NBER w31946) |
 
 ---
 
@@ -145,24 +79,112 @@ python scripts/build_panel.py
 
 | Tool | Role |
 |---|---|
-| Python | Core language — API pulls, data cleaning, forecasting |
-| Stata | Panel regression, wild cluster bootstrap, synthetic control, DiD |
-| SQL / BigQuery | Warehouse and querying at scale |
-| PySpark | Feature engineering on 100M+ row EIA dataset |
-| XGBoost / Prophet / ARIMA | Forecasting model stack |
+| Python | Data pipeline, forecasting models (ARIMA, Prophet, XGBoost) |
+| Stata | Panel regression, synthetic control, DiD, wild cluster bootstrap |
 | Hex | Interactive dashboard |
-| Git / GitHub | Version control — feature branch workflow |
-| SSRN | Working paper publication |
+| Git/GitHub | Version control |
 
 ---
 
-## Project Status
-
-- [x] Phase 1 — Data infrastructure complete (EIA pull, queue data, analysis panel built)
-- [ ] Phase 2 — Identification strategy (panel regression, synthetic control, DiD, robustness)
-- [ ] Phase 3 — Forecasting model (ARIMA, Prophet, XGBoost, benchmarking)
-- [ ] Phase 4 — Pipeline, dashboard, paper, SSRN submission
+## Repository Structure
+```
+ai-electricity-demand/
+├── data/                        # Raw and processed panel data
+│   ├── ercot_zones/             # ERCOT native load files by year
+│   ├── panel_base.csv           # Core BA-month panel
+│   ├── panel_load_shape.csv     # Panel with load shape variables
+│   ├── panel_caiso_comparison.csv
+│   ├── lbnl_queue_data.csv
+│   ├── weather_controls.csv
+│   ├── gdp_controls.csv
+│   └── forecasts_*.csv          # Model forecast outputs
+├── scripts/                     # All Python and Stata scripts
+│   ├── pull_eia_demand.py       # EIA Form 930 pull
+│   ├── build_panel.py           # Core panel construction
+│   ├── build_panel_caiso.py
+│   ├── build_panel_expanded.py
+│   ├── arima_baseline.py
+│   ├── prophet_model.py
+│   ├── xgboost_model.py
+│   ├── structural_projection.py
+│   ├── phase2_panel_regression.do
+│   ├── phase2_synthetic_control.do
+│   ├── phase2_sc_mindemand.do
+│   ├── phase2_did.do
+│   └── phase3_caiso_sc.do
+├── outputs/                     # All figures and tables
+│   ├── tables/                  # Formatted regression tables (.docx)
+│   └── *.png                    # All paper and appendix figures
+├── results/                     # Stata model output (.dta, .csv, .gph)
+├── logs/                        # Stata log files
+└── README.md
+```
 
 ---
 
-*Document version 5.0 | Updated March 2026 | lambcast.net*
+## Replication
+
+**Requirements:** Python 3.14, Stata (with `synth`, `xtbreak`,
+`reghdfe`, `boottest` packages installed).
+
+1. Clone the repository and create a `.env` file in the project root:
+```
+   EIA_API_KEY=your_key_here
+```
+
+2. Pull EIA Form 930 demand data:
+```
+   python scripts/pull_eia_demand.py
+```
+
+3. Build the core panel:
+```
+   python scripts/build_panel.py
+```
+
+4. Run Stata identification scripts in order from the `scripts/`
+   directory:
+   - `phase2_panel_regression.do`
+   - `phase2_synthetic_control.do`
+   - `phase2_sc_mindemand.do`
+   - `phase2_did.do`
+   - `phase3_caiso_sc.do`
+
+5. Run forecasting models:
+```
+   python scripts/arima_baseline.py
+   python scripts/prophet_model.py
+   python scripts/xgboost_model.py
+   python scripts/structural_projection.py
+```
+
+Figures write to `outputs/`. Stata results write to `results/` and
+`outputs/tables/`.
+
+---
+
+## Working Paper
+
+Lamb, Alan. "AI Infrastructure and Regional Electricity Demand:
+Evidence from U.S. Interconnection Queues." University of Maryland,
+March 2026. SSRN Working Paper *(forthcoming)*.
+
+---
+
+## Citation
+```bibtex
+@techreport{lamb2026ai,
+  title       = {AI Infrastructure and Regional Electricity Demand:
+                 Evidence from U.S. Interconnection Queues},
+  author      = {Lamb, Alan},
+  year        = {2026},
+  month       = {March},
+  institution = {University of Maryland},
+  type        = {Working Paper},
+  note        = {Available at SSRN (forthcoming)}
+}
+```
+
+---
+
+*Preliminary draft. Do not cite without permission.*
