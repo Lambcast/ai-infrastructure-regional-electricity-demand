@@ -1,0 +1,6 @@
+Layer,Method,Specification,Outcome,Estimate,Bootstrap_p,Min_Achievable_p,Interpretation
+Layer 1,Panel Regression,"Primary — 18-month lag, 100MW+ threshold",Avg hourly demand (MWh),0.029 MWh per MW,0.063,0.125,Conditional association; within-BA covariation after FE removal; Webb wild cluster bootstrap
+Layer 2,Synthetic Control,SC-1 — PJM + MISO donors (contaminated lower bound),"Avg hourly demand (index, 2019=100)",[SC-1 GAP — FILL FROM STATA OUTPUT],0.33,0.33,Lower bound; contaminated donors suppress estimated gap; baseline comparison
+Layer 2a,Synthetic Control,SC-3 — ISNE/NYIS/SWPP donors (clean pool),"Avg hourly demand (index, 2019=100)",24.5 index points,0.25,0.33,Preferred average demand estimate; gap grows with clean donors confirming contamination story
+Layer 2b,Synthetic Control,SC-3 — ISNE/NYIS/SWPP donors (clean pool) — HEADLINE,"Min hourly demand (index, 2019=100)",34.8 index points,0.25,0.33,Headline result; always-on baseload floor signature; weather variation removed; 0 of 3 placebos exceed ERCOT gap
+Layer 3,DiD with Low-Exposure Controls,"ISNE, NYIS, SWPP as control group","Avg hourly demand (index, 2019=100)",9.8 index points,0.125,0.125,"Least contaminated comparison; sits above SC-1, confirming lower-bound contamination story"

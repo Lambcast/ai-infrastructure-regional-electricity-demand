@@ -30,6 +30,10 @@ Thumbs.db
 # VS Code
 .vscode/
 
+# Temp files
 ~*
-
 *.stswp
+
+# Local documents (not for public repo)
+*.docx
+*.pdf

@@ -1,4 +1,148 @@
 -----------------------------------------------------------------------------------------------------------
+      name:  robustness
+       log:  C:\Users\alamb\OneDrive\Alans Work Folder\independent projects\ai-electricity-demand\outputs/t
+> ables/robustness_table_raw.log
+  log type:  text
+ opened on:  18 Mar 2026, 11:23:34
+
+. 
+. do "scripts/phase2_panel_regression.do"
+
+. /*
+> ================================================================================
+> AI Infrastructure & Regional Electricity Demand
+> Phase 2: Panel Regression — Primary Specification and Robustness Checks
+> 
+> Author:       Alan Lamb
+> Affiliation:  Lambcast Applied Economics | M.S. Applied Economics, UMD
+> Date:         March 2026
+> Contact:      lambcast.net
+> 
+> --------------------------------------------------------------------------------
+> REPLICATION NOTES
+> 
+> Software:     Stata (tested on Stata 17+)
+> Dependencies: reghdfe, ftools, boottest, estout, xtbreak, moremata
+>               Installed automatically in Section 1 if not present.
+> 
+> Input:        data/panel_base.csv        — demand + queue variables
+>               data/panel_with_controls.csv — adds hdd, cdd, gdp
+>               Both built by scripts/build_panel.py and scripts/pull_controls.py
+> 
+> Output:       logs/phase2_panel_regression.log   — full session log
+> 
+> --------------------------------------------------------------------------------
+> DATA NOTES
+> 
+> Balancing authorities:
+>   ERCO = ERCOT (Texas)
+>   MISO = Midcontinent ISO
+>   PJM  = PJM Interconnection
+> 
+> Key variables:
+>   avg_demand_mwh        Monthly average hourly electricity demand (MWh)
+>   queue_mw_filed        All projects filed in queue that month (MW, flow)
+>   queue_mw_filed_large  100MW+ projects filed that month (MW, flow)
+>   queue_mw_active       Cumulative MW ever filed (MW, stock)
+>   queue_mw_large_lag12  queue_mw_filed_large lagged 12 months
+>   queue_mw_large_lag18  queue_mw_filed_large lagged 18 months (PRIMARY)
+>   queue_mw_large_lag24  queue_mw_filed_large lagged 24 months
+>   queue_mw_lag12/18/24  All-project equivalents of the above
+>   hdd                   Monthly heating degree days (NOAA NCEI)
+>   cdd                   Monthly cooling degree days (NOAA NCEI)
+>   gdp                   Real GDP interpolated monthly (BEA state accounts)
+> 
+> MW threshold note:
+>   100MW threshold confirmed via histogram of project size distribution.
+>   Distribution is smooth with no natural break. 100MW adopted per
+>   hyperscale industry definition (Uptime Institute; CBRE market reports).
+>   Sensitivity checks at 50MW and 200MW run in Panel B.
+> 
+> Lag note:
+>   18-month primary lag set by prior reasoning — median data center
+>   construction timeline. This decision was locked before any regression
+>   results were examined. See Phase2_Methodology_Workflow.docx.
+> 
+> Winsorization note:
+>   queue_mw_large_lag18 is winsorized at its 95th percentile (18,588 MW)
+>   before all regressions using that variable. The raw distribution has
+>   two extreme outlier observations: 154,214 MW (2024m3, MISO) and
+>   102,870 MW (2025m10, MISO), both traceable to the documented MISO 2022
+>   queue reform backlog processing spike lagged 18 months forward. Without
+>   winsorization, these two observations create extreme outlier leverage
+>   that drives the coefficient negative. The p95 threshold is justified
+>   by the distribution — the jump from p90 (9,350 MW) to p99 (102,870 MW)
+>   is a 10x gap with no observations between 18,588 and 102,870.
+>   Winsorization is consistent with the p99 cap applied to the raw queue
+>   variable in Phase 1 (build_panel.py). 9 observations affected.
+>   Missing values preserved explicitly in the replace statement.
+> 
+> --------------------------------------------------------------------------------
+> INFERENCE NOTE
+> 
+> With 3 clusters (balancing authorities), asymptotic clustered standard
+> errors are unreliable. All inference uses wild cluster bootstrap via
+> boottest (Roodman et al. 2019).
+> 
+> Weight scheme: Webb weights (weight(webb)) are used throughout in
+> preference to the default Rademacher weights. With only G=3 clusters,
+> Rademacher weights produce only 2^3 = 8 possible draws, yielding a
+> coarse and conservative confidence set. Webb weights use six possible
+> weight values, producing a smoother and more accurate approximation of
+> the null distribution at very small cluster counts. See Roodman et al.
+> (2019) and Webb (2014) for details.
+> 
+> The minimum achievable p-value is not constrained to multiples of 0.125
+> under Webb weights with 999 replications. Results are reported with
+> exact p-values from the bootstrap distribution.
+> 
+> References:
+>   Roodman, D., Nielsen, M.O., MacKinnon, J.G., and Webb, M.D. (2019).
+>   Fast and wild: Bootstrap inference in Stata using boottest.
+>   The Stata Journal, 19(1), 4-60.
+> 
+>   Webb, M.D. (2014). Reworking wild bootstrap based inference for
+>   clustered errors. Queen's Economics Department Working Paper No. 1315.
+> 
+> --------------------------------------------------------------------------------
+> SYNTAX NOTE: BOOTTEST COMPATIBILITY WITH REGHDFE
+> 
+> boottest does not work after reghdfe when more than one set of fixed
+> effects is absorbed. Workaround used throughout: absorb(month_year) only,
+> with i.ba_num carried explicitly as regressors. Coefficient estimates are
+> identical to the two-way FE specification. This is documented in each
+> section where it applies.
+> 
+> --------------------------------------------------------------------------------
+> SPECIFICATION DECISIONS — LOCKED BEFORE STATA WAS OPENED
+> 
+>   1. Primary lag: 18 months (queue_mw_large_lag18)
+>   2. MW threshold: 100MW, set by histogram before any regression
+>   3. Every robustness specification runs and is reported — nothing dropped
+>   4. Inference from boottest only — regression clustered SEs not reported
+>   5. Bai-Perron break date recorded before any synthetic control work
+> 
+> ================================================================================
+> */
+. 
+. 
+. // ===========================================================================
+. // SECTION 0: ENVIRONMENT SETUP
+. // ===========================================================================
+. 
+. cd "C:\Users\alamb\OneDrive\Alans Work Folder\independent projects\ai-electricity-demand"
+C:\Users\alamb\OneDrive\Alans Work Folder\independent projects\ai-electricity-demand
+
+. 
+. capture mkdir "logs"
+
+. capture mkdir "results"
+
+. 
+. capture log close
+
+. log using "logs/phase2_panel_regression.log", replace text
+-----------------------------------------------------------------------------------------------------------
       name:  <unnamed>
        log:  C:\Users\alamb\OneDrive\Alans Work Folder\independent projects\ai-electricity-demand\logs/phas
 > e2_panel_regression.log
@@ -1369,3 +1513,9 @@ Wild bootstrap-t, null imposed, 999 replications, Wald test, clustering by ba_id
   log type:  text
  closed on:  18 Mar 2026, 11:23:47
 -----------------------------------------------------------------------------------------------------------
+
+. 
+end of do-file
+
+. 
+. capture log close robustness
