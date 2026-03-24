@@ -2,7 +2,7 @@
 plot_caiso_comparison.py
 ------------------------
 Produces contrast case figure: demand_idx and min_demand_idx for
-CAISO, ERCO, PJM, and MISO indexed to 2019=100.
+CAISO, ERCOT, PJM, and MISO indexed to 2019=100.
 
 Output: outputs/caiso_vs_ercot_comparison.png
 Run from project root: python scripts/plot_caiso_comparison.py
