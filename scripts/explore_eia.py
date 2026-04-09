@@ -21,6 +21,7 @@ df = pd.read_csv("data/eia_demand_2018_2025.csv")
 df["datetime"] = pd.to_datetime(df["datetime"])
 df = df[df["data_type"] == "D"].copy()
 df = df[df["mwh"] < 500000].copy()
+df = df[df["region"].isin(["ERCO", "PJM", "MISO"])].copy()
 df["year"]  = df["datetime"].dt.year
 df["month"] = df["datetime"].dt.to_period("M")
 
@@ -91,7 +92,7 @@ for region, grp in annual_avg.groupby("region"):
     )
 
 ax.axhline(100, color="black", linestyle="--", linewidth=1, alpha=0.4, label=f"Baseline ({base_year} = 100)")
-ax.set_title(f"Indexed Electricity Demand Growth by Region\nPJM, ERCOT, MISO  |  {base_year} = 100", fontsize=13, pad=12)
+ax.set_title(f"Indexed Electricity Demand Growth by Region\nERCOT, PJM, MISO  |  {base_year} = 100", fontsize=13, pad=12)
 ax.set_xlabel("Year", fontsize=11)
 ax.set_ylabel(f"Demand Index ({base_year} = 100)", fontsize=11)
 ax.legend(fontsize=10)
