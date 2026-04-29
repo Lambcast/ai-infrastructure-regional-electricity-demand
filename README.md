@@ -87,3 +87,144 @@ the interactive Hex dashboard:
 ---
 
 ## Repository Structure
+
+```
+├── data/                        # Raw and processed panel data
+│   ├── ercot_zones/             # ERCOT native load files by year
+│   ├── panel_base.csv           # Core BA-month panel
+│   ├── panel_load_shape.csv     # Panel with load shape variables
+│   ├── panel_caiso_comparison.csv
+│   ├── lbnl_queue_data.csv
+│   ├── weather_controls.csv
+│   ├── gdp_controls.csv
+│   └── forecasts_*.csv          # Model forecast outputs
+├── scripts/                     # All Python and Stata scripts
+│   ├── pull_eia_demand.py       # EIA Form 930 pull
+│   ├── build_panel.py           # Core panel construction
+│   ├── build_panel_caiso.py
+│   ├── build_panel_expanded.py
+│   ├── arima_baseline.py
+│   ├── prophet_model.py
+│   ├── xgboost_model.py
+│   ├── structural_projection.py
+│   ├── phase2_panel_regression.do
+│   ├── phase2_synthetic_control.do
+│   ├── phase2_sc_mindemand.do
+│   ├── phase2_did.do
+│   └── phase3_caiso_sc.do
+├── outputs/                     # All figures and tables
+│   ├── tables/                  # Formatted regression tables (.docx)
+│   └── *.png                    # All paper and appendix figures
+├── results/                     # Stata model output (.dta, .csv, .gph)
+├── logs/                        # Stata log files
+└── README.md
+```
+
+---
+
+## Replication
+
+A complete replication archive is published at Harvard Dataverse:
+[https://doi.org/10.7910/DVN/F8JV2T](https://doi.org/10.7910/DVN/F8JV2T).
+The archive contains the analysis-ready panels, all Python and Stata
+scripts, final figures and tables, and the working paper PDF. Raw
+third-party data is not redistributable under the terms of the
+upstream providers; the archive's README documents how to acquire it.
+
+**Fast path (recommended).** Download the Dataverse archive. The
+analysis-ready panels are included, so you can run the Stata
+identification scripts and the Python forecasting models without
+hitting any external APIs.
+
+**Full reproduction from sources.** Use this path if you want to
+rebuild the panels from raw data.
+
+Requirements: Python 3.14, Stata (with `synth`, `xtbreak`, `reghdfe`,
+`boottest` packages installed).
+
+1. Clone the repository and create a `.env` file in the project root:
+
+   ```
+   EIA_API_KEY=your_key_here
+   ```
+
+2. Pull EIA Form 930 demand data:
+
+   ```
+   python scripts/pull_eia_demand.py
+   ```
+
+3. Build the core panel:
+
+   ```
+   python scripts/build_panel.py
+   ```
+
+4. Run Stata identification scripts in order from the `scripts/`
+   directory:
+   - `phase2_panel_regression.do`
+   - `phase2_synthetic_control.do`
+   - `phase2_sc_mindemand.do`
+   - `phase2_did.do`
+   - `phase3_caiso_sc.do`
+
+5. Run forecasting models:
+
+   ```
+   python scripts/arima_baseline.py
+   python scripts/prophet_model.py
+   python scripts/xgboost_model.py
+   python scripts/structural_projection.py
+   ```
+
+Figures write to `outputs/`. Stata results write to `results/` and
+`outputs/tables/`.
+
+---
+
+## Working Paper
+
+Lamb, Alan. 2026. "AI Infrastructure and Regional Electricity Demand:
+Evidence from U.S. Interconnection Queues." University of Maryland
+Working Paper. https://ssrn.com/abstract=6446446
+
+---
+
+## Citation
+
+To cite the paper:
+
+```bibtex
+@techreport{lamb2026ai,
+  title       = {AI Infrastructure and Regional Electricity Demand: Evidence from U.S. Interconnection Queues},
+  author      = {Lamb, Alan},
+  year        = {2026},
+  institution = {University of Maryland},
+  type        = {Working Paper},
+  url         = {https://ssrn.com/abstract=6446446}
+}
+```
+
+To cite the replication data:
+
+> Lamb, Alan, 2026, "AI Infrastructure and Regional Electricity Demand: Evidence from U.S. Interconnection Queues", https://doi.org/10.7910/DVN/F8JV2T, Harvard Dataverse, V1.
+
+```bibtex
+@misc{lamb2026data,
+  title     = {Replication Data for: AI Infrastructure and Regional Electricity Demand: Evidence from U.S. Interconnection Queues},
+  author    = {Lamb, Alan},
+  year      = {2026},
+  publisher = {Harvard Dataverse},
+  version   = {V1},
+  doi       = {10.7910/DVN/F8JV2T},
+  url       = {https://doi.org/10.7910/DVN/F8JV2T}
+}
+```
+
+---
+
+## License
+
+Code is released under the MIT License. Derived data and outputs are
+released under CC BY 4.0. See the Dataverse landing page for the
+authoritative license terms on the archived materials.
