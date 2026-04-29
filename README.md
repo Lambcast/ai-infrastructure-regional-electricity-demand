@@ -2,7 +2,7 @@
 ## Evidence from U.S. Interconnection Queues
 
 **Alan Lamb** | M.S. Applied Economics, University of Maryland | 2026  
-[lambcast.net](https://lambcast.net) | [SSRN Working Paper](https://ssrn.com/abstract=6446446) *(forthcoming)*
+[lambcast.net](https://lambcast.net) | [SSRN](https://ssrn.com/abstract=6446446) | [Replication Data (Harvard Dataverse)](https://doi.org/10.7910/DVN/F8JV2T)
 
 ---
 
@@ -59,7 +59,7 @@ out-of-sample RMSE.
 Scenario projections and zone-level demand analysis are available in
 the interactive Hex dashboard:
 
-[AI Infrastructure and Regional Electricity Demand — Hex Dashboard](https://app.hex.tech/019d202f-da81-7007-97ee-426ecaa0225e/app/AI-infrastructure-Regional-Electricity-Demand-Evidence-from-US-Interconnection-Queues-032nXU0Qyl37dzoD7TiIpZ/latest)
+[AI Infrastructure and Regional Electricity Demand: Hex Dashboard](https://app.hex.tech/019d202f-da81-7007-97ee-426ecaa0225e/app/AI-infrastructure-Regional-Electricity-Demand-Evidence-from-US-Interconnection-Queues-032nXU0Qyl37dzoD7TiIpZ/latest)
 
 ---
 
@@ -87,104 +87,3 @@ the interactive Hex dashboard:
 ---
 
 ## Repository Structure
-```
-ai-electricity-demand/
-├── data/                        # Raw and processed panel data
-│   ├── ercot_zones/             # ERCOT native load files by year
-│   ├── panel_base.csv           # Core BA-month panel
-│   ├── panel_load_shape.csv     # Panel with load shape variables
-│   ├── panel_caiso_comparison.csv
-│   ├── lbnl_queue_data.csv
-│   ├── weather_controls.csv
-│   ├── gdp_controls.csv
-│   └── forecasts_*.csv          # Model forecast outputs
-├── scripts/                     # All Python and Stata scripts
-│   ├── pull_eia_demand.py       # EIA Form 930 pull
-│   ├── build_panel.py           # Core panel construction
-│   ├── build_panel_caiso.py
-│   ├── build_panel_expanded.py
-│   ├── arima_baseline.py
-│   ├── prophet_model.py
-│   ├── xgboost_model.py
-│   ├── structural_projection.py
-│   ├── phase2_panel_regression.do
-│   ├── phase2_synthetic_control.do
-│   ├── phase2_sc_mindemand.do
-│   ├── phase2_did.do
-│   └── phase3_caiso_sc.do
-├── outputs/                     # All figures and tables
-│   ├── tables/                  # Formatted regression tables (.docx)
-│   └── *.png                    # All paper and appendix figures
-├── results/                     # Stata model output (.dta, .csv, .gph)
-├── logs/                        # Stata log files
-└── README.md
-```
-
----
-
-## Replication
-
-**Requirements:** Python 3.14, Stata (with `synth`, `xtbreak`,
-`reghdfe`, `boottest` packages installed).
-
-1. Clone the repository and create a `.env` file in the project root:
-```
-   EIA_API_KEY=your_key_here
-```
-
-2. Pull EIA Form 930 demand data:
-```
-   python scripts/pull_eia_demand.py
-```
-
-3. Build the core panel:
-```
-   python scripts/build_panel.py
-```
-
-4. Run Stata identification scripts in order from the `scripts/`
-   directory:
-   - `phase2_panel_regression.do`
-   - `phase2_synthetic_control.do`
-   - `phase2_sc_mindemand.do`
-   - `phase2_did.do`
-   - `phase3_caiso_sc.do`
-
-5. Run forecasting models:
-```
-   python scripts/arima_baseline.py
-   python scripts/prophet_model.py
-   python scripts/xgboost_model.py
-   python scripts/structural_projection.py
-```
-
-Figures write to `outputs/`. Stata results write to `results/` and
-`outputs/tables/`.
-
----
-
-## Working Paper
-
-Lamb, Alan. "AI Infrastructure and Regional Electricity Demand:
-Evidence from U.S. Interconnection Queues." University of Maryland,
-March 2026. SSRN Working Paper *(forthcoming)*.
-
----
-
-## Citation
-```bibtex
-@techreport{lamb2026ai,
-  title       = {AI Infrastructure and Regional Electricity Demand:
-                 Evidence from U.S. Interconnection Queues},
-  author      = {Lamb, Alan},
-  year        = {2026},
-  month       = {March},
-  institution = {University of Maryland},
-  type        = {Working Paper},
-  note        = {Available at SSRN (forthcoming)}
-}
-```
-
----
-
-*Preliminary draft. Do not cite without permission.*
